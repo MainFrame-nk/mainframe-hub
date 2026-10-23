@@ -456,3 +456,60 @@ export async function deleteCloudFile(fileId: string) {
   await prisma.cloudFile.delete({ where: { id: fileId } });
   revalidatePath("/vault");
 }
+
+// Обновление точного статуса этапа для Drag-and-Drop Канбана (TODO | IN_PROGRESS | DONE)
+export async function updateStageStatus(stageId: string, newStatus: string) {
+  if (!(await checkVaultAuth())) return;
+
+  await prisma.stage.update({
+    where: { id: stageId },
+    data: { status: newStatus },
+  });
+
+  revalidatePath("/vault");
+  revalidatePath("/");
+}
+
+// Конвертация заявки из CRM (Lead) в полноценный Проект (Узел) в 1 клик
+export async function convertLeadToProject(leadId: string) {
+  if (!(await checkVaultAuth())) return;
+
+  const lead = await prisma.lead.findUnique({ where: { id: leadId } });
+  if (!lead) return;
+
+  const slug =
+    lead.name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/(^-|-$)/g, "") +
+    "-" +
+    Date.now().toString().slice(-3);
+
+  await prisma.project.create({
+    data: {
+      slug: slug || `client-project-${Date.now()}`,
+      title: `Проект: ${lead.name}`,
+      tagline: `${lead.message} (Контакт: ${lead.contact})`,
+      category: "BUSINESS",
+      status: "IN_DEV",
+      isPublic: false, // По умолчанию приватный, чтобы не светить клиентский заказ раньше времени
+      techStack: "TypeScript, Next.js, Prisma",
+      accentColor: "crimson",
+      stages: {
+        create: [
+          { title: `Связаться с клиентом (${lead.contact}) и утвердить ТЗ`, status: "DONE", order: 1 },
+          { title: "Проектирование БД и архитектуры", status: "IN_PROGRESS", order: 2 },
+          { title: "Разработка MVP и деплой", status: "TODO", order: 3 },
+        ],
+      },
+    },
+  });
+
+  // Переводим саму заявку в статус В РАБОТЕ
+  await prisma.lead.update({
+    where: { id: leadId },
+    data: { status: "IN_PROGRESS" },
+  });
+
+  revalidatePath("/vault");
+}

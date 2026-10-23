@@ -170,73 +170,8 @@ export default async function VaultPage() {
         {/* МОДУЛЬ ОБЛАЧНОГО ХРАНИЛИЩА */}
         <CloudVaultWidget files={cloudFiles} />
 
-        {/* CRM: ВХОДЯЩИЕ ЗАЯВКИ ОТ КЛИЕНТОВ */}
-        <div className="mb-12">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-bold flex items-center gap-2">
-              <Inbox className="w-5 h-5 text-cyber-crimson" /> Входящие заявки с сайта ({leads.length})
-            </h2>
-            <span className="text-xs font-mono text-slate-500">CLIENT LEADS PIPELINE</span>
-          </div>
-
-          {leads.length === 0 ? (
-            <div className="p-5 rounded-2xl bg-obsidian-card border border-obsidian-border text-center text-slate-500 font-mono text-xs">
-              Новых заявок пока нет.
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {leads.map((lead) => (
-                <div
-                  key={lead.id}
-                  className="p-6 rounded-2xl bg-obsidian-card border border-obsidian-border flex flex-col justify-between"
-                >
-                  <div>
-                    <div className="flex items-center justify-between gap-2 mb-3">
-                      <span className="px-2.5 py-1 rounded bg-cyber-crimson/15 border border-cyber-crimson/40 text-cyber-crimson font-mono text-xs">
-                        СТАТУС: {lead.status}
-                      </span>
-                      <span className="text-xs font-mono text-slate-500">
-                        {new Date(lead.createdAt).toLocaleDateString("ru-RU")}
-                      </span>
-                    </div>
-
-                    <h3 className="text-lg font-bold text-white mb-1">{lead.name}</h3>
-                    <div className="text-xs font-mono text-cyber-cyan mb-3">
-                      Контакт: <span className="text-slate-200">{lead.contact}</span>
-                    </div>
-                    <p className="text-sm text-slate-300 bg-obsidian p-3.5 rounded-xl border border-obsidian-border mb-4 whitespace-pre-wrap">
-                      {lead.message}
-                    </p>
-                  </div>
-
-                  <div className="flex items-center justify-between pt-4 border-t border-obsidian-border/80">
-                    <div className="flex items-center gap-2">
-                      <form action={updateLeadStatus.bind(null, lead.id, "IN_PROGRESS")}>
-                        <button className="px-2.5 py-1 rounded bg-obsidian border border-obsidian-border hover:border-cyber-cyan text-xs font-mono text-slate-300 flex items-center gap-1 cursor-pointer">
-                          <Clock className="w-3 h-3 text-cyber-cyan" /> В работу
-                        </button>
-                      </form>
-                      <form action={updateLeadStatus.bind(null, lead.id, "CLOSED")}>
-                        <button className="px-2.5 py-1 rounded bg-obsidian border border-obsidian-border hover:border-emerald-400 text-xs font-mono text-slate-300 flex items-center gap-1 cursor-pointer">
-                          <CheckCircle className="w-3 h-3 text-emerald-400" /> Закрыть
-                        </button>
-                      </form>
-                    </div>
-
-                    <form action={deleteLead.bind(null, lead.id)}>
-                      <button className="text-slate-500 hover:text-cyber-crimson transition-colors p-1 cursor-pointer">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </form>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* ИНТЕРАКТИВНЫЙ ДАШБОРД СФЕР ЖИЗНИ, РОАДМАПОВ И ЗАМЕТОК */}
-        <VaultDashboard projects={projects} notes={notes} />
+        {/* ИНТЕРАКТИВНЫЙ ДАШБОРД СФЕР ЖИЗНИ, РОАДМАПОВ, ЗАМЕТОК И ЗАЯВОК*/}
+        <VaultDashboard projects={projects} notes={notes} leads={leads} />
       </div>
     </main>
   );

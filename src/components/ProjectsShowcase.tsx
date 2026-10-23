@@ -103,14 +103,32 @@ export default function ProjectsShowcase({ projects }: { projects: PublicProject
               {project.tagline}
             </p>
 
+            {/* УМНЫЙ СТАТУС НА ГЛАВНОЙ: Прогресс-бар (если < 100%) ИЛИ Последнее обновление (если 100%) */}
             {project.stages && project.stages.length > 0 && (() => {
               const total = project.stages.length;
-              const done = project.stages.filter((s: any) => s.status === "DONE").length;
+              const doneStages = project.stages.filter((s: any) => s.status === "DONE");
+              const done = doneStages.length;
               const percent = Math.round((done / total) * 100);
+              const lastCompletedStage = doneStages[doneStages.length - 1];
+
+              if (percent === 100 && lastCompletedStage) {
+                return (
+                  <div className="mb-6 p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2.5 text-xs font-mono text-emerald-400">
+                      <CheckCircle2 className="w-4 h-4 shrink-0" />
+                      <span>Последний апдейт: <strong className="text-white">{lastCompletedStage.title}</strong></span>
+                    </div>
+                    <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-[10px] font-mono text-emerald-300 shrink-0">
+                      RELEASED
+                    </span>
+                  </div>
+                );
+              }
+
               return (
                 <div className="mb-6 p-4 rounded-xl bg-obsidian border border-obsidian-border">
                   <div className="flex items-center justify-between text-xs font-mono mb-1.5">
-                    <span className="text-slate-400">Roadmap / Этапы разработки</span>
+                    <span className="text-slate-400">Активная фаза разработки</span>
                     <span className="text-cyber-cyan font-bold">{percent}% ({done}/{total})</span>
                   </div>
                   <div className="w-full h-1.5 rounded-full bg-obsidian-card overflow-hidden">
