@@ -1,0 +1,82 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// 1. Проекты в твоем Хабе
+model Project {
+  id          String  @id @default(cuid())
+  slug        String  @unique // Например: "okaeri-gaming"
+  title       String // Название проекта
+  tagline     String // Короткое описание для карточки
+  description String? // Полное описание (Markdown)
+  category    String  @default("DEV") // DEV, BUSINESS, WORK, FAMILY
+  status      String  @default("ACTIVE") // IDEA, IN_DEV, ACTIVE, ARCHIVED
+  isPublic    Boolean @default(true) // true = видно всем на главной, false = только тебе в Vault
+  featured    Boolean @default(false) // Крупная карточка в Bento-сетке
+  liveUrl     String? // Ссылка на сайт (например, https://okaeri-gaming.ru/)
+  repoUrl     String? // Ссылка на GitHub
+  techStack   String // Стек через запятую: "Next.js, Prisma, TypeScript"
+  accentColor String  @default("purple") // purple, cyan, crimson
+
+  stages    Stage[] // Этапы разработки
+  notes     Note[] // Личные заметки по проекту
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// 2. Этапы разработки (Роадмап проекта)
+model Stage {
+  id        String   @id @default(cuid())
+  title     String
+  status    String   @default("TODO") // TODO, IN_PROGRESS, DONE
+  order     Int      @default(0)
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+}
+
+// 3. Личные заметки и мысли (Твой приватный блокнот в Хабе)
+model Note {
+  id        String   @id @default(cuid())
+  title     String
+  content   String // Текст заметки, команды, сниппеты кода
+  category  String   @default("DEV") // DEV, BUSINESS, WORK, FAMILY
+  isPinned  Boolean  @default(false)
+  projectId String? // Может быть привязана к проекту или быть общей
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Новая модель для заявок от клиентов с сайта
+model Lead {
+  id        String   @id @default(cuid())
+  name      String // Имя клиента или компании
+  contact   String // Telegram или Email
+  message   String // Текст задачи
+  status    String   @default("NEW") // NEW, IN_PROGRESS, CLOSED
+  createdAt DateTime @default(now())
+}
+
+// Модель для файлов в твоем Облачном Хранилище
+model CloudFile {
+  id          String   @id @default(cuid())
+  name        String // Имя файла
+  size        Int // Размер в байтах
+  mimeType    String // Тип (image/png, application/zip и т.д.)
+  fileUrl     String // Ссылка на скачивание (Google Drive / локальное хранилище)
+  driveFileId String? // ID файла на Google Диске для удаления
+  createdAt   DateTime @default(now())
+}
+
+model AuthCode {
+  id        String   @id @default(cuid())
+  code      String // Сам 6-значный код
+  expiresAt DateTime // Время жизни (например, 5 минут)
+  used      Boolean  @default(false)
+}

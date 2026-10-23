@@ -1,103 +1,193 @@
-import Image from "next/image";
+import NeuralHub from "@/components/NeuralHub";
+import ContactSection from "@/components/ContactSection";
+import ProjectsShowcase from "@/components/ProjectsShowcase";
+import { prisma } from "@/lib/prisma";
+import { ensureSeedData } from "@/app/actions";
+import Link from "next/link";
+import {
+  Lock,
+  Sparkles,
+  Terminal,
+  ArrowRight,
+  Activity,
+  Code2,
+  Database,
+} from "lucide-react";
 
-export default function Home() {
+export default async function Home() {
+  await ensureSeedData();
+
+  const publicProjects = await prisma.project.findMany({
+    where: { isPublic: true },
+    include: {
+      stages: {
+        orderBy: { order: "asc" },
+      },
+    },
+    orderBy: { createdAt: "asc" },
+  });
+
   return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+    <main className="relative min-h-screen bg-obsidian text-slate-100 selection:bg-cyber-purple selection:text-white overflow-hidden flex flex-col justify-between">
+      {/* Фоновые световые пятна */}
+      <div className="pointer-events-none fixed top-0 left-1/4 w-[500px] h-[500px] bg-cyber-purple/10 rounded-full blur-[150px]" />
+      <div className="pointer-events-none fixed bottom-0 right-1/4 w-[500px] h-[500px] bg-cyber-cyan/10 rounded-full blur-[150px]" />
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+      {/* Навигационный бар (HUD) */}
+      <header className="sticky top-0 z-40 border-b border-obsidian-border/80 bg-obsidian/80 backdrop-blur-md">
+        <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-3 h-3 rounded-full bg-cyber-crimson shadow-[0_0_12px_#FF2A5F]" />
+            <span className="font-mono font-bold tracking-wider text-sm">
+              MAINFRAME<span className="text-cyber-cyan">.DEV</span>
+            </span>
+          </div>
+
+          <nav className="hidden md:flex items-center gap-8 text-sm text-slate-400">
+            <a href="#neural-hub" className="hover:text-cyber-cyan transition-colors">
+              Нейро-узел
+            </a>
+            <a href="#projects" className="hover:text-cyber-cyan transition-colors">
+              Проекты ({publicProjects.length})
+            </a>
+            <a href="#contact" className="hover:text-cyber-cyan transition-colors">
+              Сотрудничество
+            </a>
+          </nav>
+
+          <Link
+            href="/vault"
+            className="flex items-center gap-2 px-4 py-1.5 rounded-lg bg-obsidian-card border border-obsidian-border hover:border-cyber-purple/60 text-xs font-mono text-slate-200 transition-all"
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+            <Lock className="w-3.5 h-3.5 text-cyber-purple" />
+            Core Vault
+          </Link>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
+      </header>
+
+      <div className="max-w-6xl mx-auto px-6 pt-16 pb-24 w-full">
+        {/* HERO СЕКЦИЯ */}
+        <section className="mb-14">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-obsidian-card border border-obsidian-border text-xs font-mono text-cyber-cyan mb-6">
+            <Sparkles className="w-3.5 h-3.5 text-cyber-crimson" />
+            FULL-STACK ARCHITECT // MAINFRAME BRAND
+          </div>
+
+          <h1 className="text-5xl md:text-7xl font-extrabold tracking-tight mb-6 leading-[1.1]">
+            Архитектура цифровых <br />
+            <span className="bg-gradient-to-r from-cyber-purple via-cyber-cyan to-cyber-crimson bg-clip-text text-transparent">
+              экосистем и проектов
+            </span>
+          </h1>
+
+          <p className="max-w-2xl text-slate-400 text-lg md:text-xl leading-relaxed mb-8">
+            Создаю быстрые веб-платформы, игровые хабы и масштабируемые сервисы с корпоративным качеством кода и современным интерактивным дизайном.
+          </p>
+
+          {/* Кнопки быстрого действия + Телеметрия ядра */}
+          <div className="flex flex-wrap items-center gap-4">
+            <a
+              href="#contact"
+              className="px-6 py-3.5 rounded-xl bg-cyber-purple hover:bg-cyber-purple/90 text-white font-medium text-sm transition-all shadow-[0_0_25px_rgba(139,92,246,0.4)] flex items-center gap-2"
+            >
+              Заказать разработку <ArrowRight className="w-4 h-4" />
+            </a>
+            <a
+              href="#projects"
+              className="px-6 py-3.5 rounded-xl bg-obsidian-card border border-obsidian-border hover:border-cyber-cyan/50 text-slate-200 font-medium text-sm transition-all"
+            >
+              Исследовать экосистему
+            </a>
+          </div>
+
+          {/* Мини-панель инженерных преимуществ */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-12 pt-8 border-t border-obsidian-border/60 font-mono text-xs">
+            <div className="flex items-center gap-3 text-slate-300">
+              <Code2 className="w-5 h-5 text-cyber-cyan shrink-0" />
+              <div>
+                <div className="font-bold text-white">MODERN FULL-STACK</div>
+                <div className="text-slate-500">TypeScript, Next.js 15, Node.js</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 text-slate-300">
+              <Database className="w-5 h-5 text-cyber-purple shrink-0" />
+              <div>
+                <div className="font-bold text-white">DATA & SECURITY</div>
+                <div className="text-slate-500">Prisma ORM, SQL, Multi-Server Relay</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 text-slate-300">
+              <Activity className="w-5 h-5 text-cyber-crimson shrink-0" />
+              <div>
+                <div className="font-bold text-white">REAL-TIME TELEMETRY</div>
+                <div className="text-slate-500">Живая синхронизация узлов</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* ИНТЕРАКТИВНАЯ АНИМАЦИЯ СВЯЗЕЙ МЕЖДУ ПРОЕКТАМИ */}
+        <section id="neural-hub" className="mb-16">
+          <div className="flex items-center justify-between mb-4">
+            <span className="text-xs font-mono text-cyber-cyan tracking-wider uppercase">
+              // Интерактивная топология проектов
+            </span>
+            <span className="text-xs font-mono text-slate-500">REAL-TIME TELEMETRY</span>
+          </div>
+          <NeuralHub projects={publicProjects} />
+        </section>
+
+        {/* BENTO GRID С МОДАЛЬНЫМИ ДОСЬЕ ПРОЕКТОВ */}
+        <section id="projects" className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <ProjectsShowcase projects={publicProjects} />
+
+          {/* ФОРМА СВЯЗИ ДЛЯ КЛИЕНТОВ */}
+          <div id="contact" className="md:col-span-3">
+            <ContactSection />
+          </div>
+        </section>
+      </div>
+
+      {/* КОРПОРАТИВНЫЙ ФУТЕР (ПОДВАЛ САЙТА) */}
+      <footer className="border-t border-obsidian-border bg-obsidian-card/60 backdrop-blur-md">
+        <div className="max-w-6xl mx-auto px-6 py-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs font-mono text-slate-400">
+          <div className="flex items-center gap-3">
+            <Terminal className="w-4 h-4 text-cyber-cyan" />
+            <span className="text-slate-200 font-bold">MAINFRAME HUB</span>
+            <span>© {new Date().getFullYear()} // ALL SYSTEMS OPERATIONAL</span>
+          </div>
+
+          <div className="flex items-center gap-6">
+            <a
+              href="https://okaeri-gaming.ru/"
+              target="_blank"
+              rel="noreferrer"
+              className="hover:text-cyber-cyan transition-colors"
+            >
+              Okaeri Gaming
+            </a>
+            <a
+              href="https://t.me/mainframe_division"
+              target="_blank"
+              rel="noreferrer"
+              className="hover:text-cyber-cyan transition-colors"
+            >
+              Telegram
+            </a>
+            <a
+              href="https://discord.gg/Q4BNTQANcH"
+              target="_blank"
+              rel="noreferrer"
+              className="hover:text-cyber-purple transition-colors"
+            >
+              Discord
+            </a>
+            <Link href="/vault" className="text-cyber-crimson hover:underline">
+              Vault Login
+            </Link>
+          </div>
+        </div>
       </footer>
-    </div>
+    </main>
   );
 }
