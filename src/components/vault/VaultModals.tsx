@@ -4,7 +4,7 @@ import React from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { ProjectItem } from "./types";
 import { createNote, createProject } from "@/app/actions";
-import { StickyNote, FolderPlus, X } from "lucide-react";
+import { StickyNote, FolderPlus, X, Calendar, Bell } from "lucide-react";
 
 interface VaultModalsProps {
   isNoteModalOpen: boolean;
@@ -13,6 +13,8 @@ interface VaultModalsProps {
   setIsProjectModalOpen: (v: boolean) => void;
   activeCategory: string;
   projects: ProjectItem[];
+  prefilledDateTime?: string;
+  defaultRemindOffset?: string;
 }
 
 export default function VaultModals({
@@ -22,6 +24,8 @@ export default function VaultModals({
   setIsProjectModalOpen,
   activeCategory,
   projects,
+  prefilledDateTime = "",
+  defaultRemindOffset = "30",
 }: VaultModalsProps) {
   return (
     <>
@@ -48,25 +52,39 @@ export default function VaultModals({
                 <X className="w-4 h-4" />
               </button>
               <h2 className="text-lg font-bold mb-1 flex items-center gap-2">
-                <StickyNote className="w-5 h-5 text-cyber-cyan" /> Новая зашифрованная заметка
+                <StickyNote className="w-5 h-5 text-cyber-cyan" /> Новая запись / Событие в календарь
               </h2>
               <p className="text-xs font-mono text-slate-400 mb-5">
-                Обрамляй команды в `обратные кавычки` для подсветки кода.
+                Дата создания сохранится автоматически. Если укажешь дату события — оно появится в Ежедневнике и пришлет пуш в ТГ.
               </p>
+
               <form
                 action={async (formData) => {
                   await createNote(formData);
                   setIsNoteModalOpen(false);
                 }}
-                className="space-y-4"
+                className="space-y-3.5"
               >
                 <div className="grid grid-cols-2 gap-3">
                   <input
                     name="title"
-                    placeholder="Заголовок..."
+                    placeholder="Заголовок / Событие..."
                     required
                     className="w-full px-4 py-2.5 rounded-xl bg-obsidian border border-obsidian-border focus:border-cyber-cyan outline-none text-sm text-white"
                   />
+                  <select
+                    name="eventType"
+                    defaultValue={prefilledDateTime ? "MEETING" : "NOTE"}
+                    className="w-full px-4 py-2.5 rounded-xl bg-obsidian border border-obsidian-border focus:border-cyber-cyan outline-none text-sm text-slate-200"
+                  >
+                    <option value="NOTE">📝 Обычная заметка</option>
+                    <option value="MEETING">🤝 Встреча / Созвон</option>
+                    <option value="DEADLINE">🔥 Дедлайн проекта</option>
+                    <option value="EVENT">🎉 Мероприятие</option>
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
                   <select
                     name="category"
                     defaultValue={activeCategory === "ALL" ? "DEV" : activeCategory}
@@ -77,22 +95,61 @@ export default function VaultModals({
                     <option value="WORK">🛠️ Работа</option>
                     <option value="FAMILY">🏠 Семья</option>
                   </select>
+
+                  <select
+                    name="projectId"
+                    className="w-full px-4 py-2.5 rounded-xl bg-obsidian border border-obsidian-border focus:border-cyber-cyan outline-none text-sm text-slate-300"
+                  >
+                    <option value="">Без привязки к узлу</option>
+                    {projects.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        Узел: {p.title}
+                      </option>
+                    ))}
+                  </select>
                 </div>
-                <select
-                  name="projectId"
-                  className="w-full px-4 py-2.5 rounded-xl bg-obsidian border border-obsidian-border focus:border-cyber-cyan outline-none text-sm text-slate-300"
-                >
-                  <option value="">Без привязки к узлу</option>
-                  {projects.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      Узел: {p.title}
-                    </option>
-                  ))}
-                </select>
+
+                {/* БЛОК КАЛЕНДАРЯ И НАСТРОЙКИ TELEGRAM-УВЕДОМЛЕНИЯ */}
+                <div className="p-3.5 rounded-2xl bg-obsidian border border-obsidian-border space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[10px] font-mono text-slate-400 flex items-center gap-1 mb-1">
+                        <Calendar className="w-3 h-3 text-cyber-cyan" /> Дата и время события:
+                      </label>
+                      <input
+                        key={prefilledDateTime || "empty-date"}
+                        type="datetime-local"
+                        name="scheduledFor"
+                        defaultValue={prefilledDateTime}
+                        className="w-full px-3 py-2 rounded-xl bg-obsidian-card border border-obsidian-border focus:border-cyber-cyan outline-none text-xs font-mono text-white"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-mono text-slate-400 flex items-center gap-1 mb-1">
+                        <Bell className="w-3 h-3 text-cyber-purple" /> Уведомить в Telegram:
+                      </label>
+                      <select
+                        name="remindOffset"
+                        defaultValue={defaultRemindOffset}
+                        className="w-full px-3 py-2 rounded-xl bg-obsidian-card border border-obsidian-border focus:border-cyber-purple outline-none text-xs font-mono text-slate-200"
+                      >
+                        <option value="NONE">Без уведомления</option>
+                        <option value="0">В момент начала (0 мин)</option>
+                        <option value="15">За 15 минут</option>
+                        <option value="30">За 30 минут</option>
+                        <option value="60">За 1 час</option>
+                        <option value="180">За 3 часа</option>
+                        <option value="1440">За 1 сутки (24 часа)</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
                 <textarea
                   name="content"
-                  placeholder="Текст заметки или `команда`..."
-                  rows={4}
+                  placeholder="Детали встречи, ссылка на зум, чек-лист дедлайна или `код`..."
+                  rows={3}
                   required
                   className="w-full px-4 py-2.5 rounded-xl bg-obsidian border border-obsidian-border focus:border-cyber-cyan outline-none text-sm text-white font-mono"
                 />
@@ -100,7 +157,7 @@ export default function VaultModals({
                   type="submit"
                   className="w-full py-3 rounded-xl bg-cyber-cyan text-obsidian font-mono text-xs font-bold hover:bg-cyber-cyan/90 cursor-pointer"
                 >
-                  СОХРАНИТЬ В VAULT
+                  СОХРАНИТЬ В СИСТЕМУ
                 </button>
               </form>
             </motion.div>
@@ -108,6 +165,7 @@ export default function VaultModals({
         )}
       </AnimatePresence>
 
+      {/* Вторая модалка (Новый проект) остается такой же */}
       <AnimatePresence>
         {isProjectModalOpen && (
           <motion.div

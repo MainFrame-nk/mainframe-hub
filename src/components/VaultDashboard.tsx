@@ -9,6 +9,8 @@ import VaultNotesTab from "./vault/VaultNotesTab";
 import VaultCrmTab from "./vault/VaultCrmTab";
 import VaultModals from "./vault/VaultModals";
 import { Plus, FolderPlus, StickyNote, ListTodo, Inbox, ShieldAlert } from "lucide-react";
+import VaultCalendarTab from "./vault/VaultCalendarTab";
+import { sendDatabaseBackupToTelegram, sendDailyDigestToTelegram } from "@/app/actions";
 
 export default function VaultDashboard({
   projects,
@@ -25,7 +27,9 @@ export default function VaultDashboard({
   }, [projects]);
 
   const [activeCategory, setActiveCategory] = useState<string>("ALL");
-  const [activeView, setActiveView] = useState<"KANBAN" | "NOTES" | "CRM">("KANBAN");
+  const [activeView, setActiveView] = useState<"KANBAN" | "NOTES" | "CALENDAR" | "CRM">("KANBAN");
+  const [prefilledDateTime, setPrefilledDateTime] = useState<string>("");
+  const [defaultRemindOffset, setDefaultRemindOffset] = useState<string>("30");
   const [focusedProjectId, setFocusedProjectId] = useState<string>(projects[0]?.id || "ALL");
   const [noteFilterProjectId, setNoteFilterProjectId] = useState<string>("ALL");
 
@@ -59,6 +63,9 @@ export default function VaultDashboard({
       )
     );
   };
+
+  const [isBackingUp, setIsBackingUp] = useState(false);
+  const [isDigestSending, setIsDigestSending] = useState(false);
 
   return (
     <div className="space-y-6">
@@ -144,10 +151,23 @@ export default function VaultDashboard({
                 </span>
               )}
             </button>
+            <button
+              onClick={() => setActiveView("CALENDAR")}
+              className={`px-3 py-1.5 rounded-lg font-mono text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                activeView === "CALENDAR"
+                  ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40"
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              📅 Календарь
+            </button>
           </div>
 
           <button
-            onClick={() => setIsNoteModalOpen(true)}
+            onClick={() => {
+              setPrefilledDateTime("");
+              setIsNoteModalOpen(true);
+            }}
             className="px-3 py-2 rounded-xl bg-cyber-cyan/15 hover:bg-cyber-cyan/25 border border-cyber-cyan/40 text-cyber-cyan font-mono text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" /> Заметка
@@ -160,6 +180,44 @@ export default function VaultDashboard({
             <FolderPlus className="w-3.5 h-3.5" /> Узел
           </button>
         </div>
+
+        {/* Кнопка Бэкапа БД в Telegram */}
+        <button
+          disabled={isBackingUp}
+          onClick={async () => {
+            setIsBackingUp(true);
+            const res = await sendDatabaseBackupToTelegram();
+            setIsBackingUp(false);
+            if (res.success) {
+              alert("✅ Свежий бэкап базы данных dev.db отправлен в твой Telegram!");
+            } else {
+              alert("❌ Ошибка отправки бэкапа: " + res.error);
+            }
+          }}
+          title="Отправить слепок SQLite базы данных в личный Telegram"
+          className="px-3 py-2 rounded-xl bg-obsidian border border-obsidian-border hover:border-emerald-400 text-slate-300 hover:text-emerald-400 font-mono text-xs flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+        >
+          <span>💾</span>
+          <span className="hidden sm:inline">{isBackingUp ? "Отправка..." : "Бэкап в ТГ"}</span>
+        </button>
+
+        {/* Кнопка Утренней сводки */}
+        <button
+          disabled={isDigestSending}
+          onClick={async () => {
+            setIsDigestSending(true);
+            const res = await sendDailyDigestToTelegram();
+            setIsDigestSending(false);
+            if (res.success) {
+              alert("🌅 Сводка задач и событий дня отправлена в Telegram!");
+            }
+          }}
+          title="Прислать оперативную сводку дня в Telegram"
+          className="px-3 py-2 rounded-xl bg-obsidian border border-obsidian-border hover:border-cyber-cyan text-slate-300 hover:text-cyber-cyan font-mono text-xs flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+        >
+          <span>🌅</span>
+          <span className="hidden sm:inline">{isDigestSending ? "Сбор..." : "Сводка"}</span>
+        </button>
       </div>
 
       {/* РЕНДЕР АКТИВНОГО МОДУЛЯ */}
@@ -188,6 +246,17 @@ export default function VaultDashboard({
         />
       )}
 
+      {activeView === "CALENDAR" && (
+      <VaultCalendarTab
+        notes={filteredNotes}
+        projects={filteredProjects}
+        onOpenNewEventForDate={(isoDate) => {
+          setPrefilledDateTime(isoDate);
+          setIsNoteModalOpen(true);
+        }}
+      />
+    )}
+
       {/* МОДАЛЬНЫЕ ОКНА */}
       <VaultModals
         isNoteModalOpen={isNoteModalOpen}
@@ -196,6 +265,7 @@ export default function VaultDashboard({
         setIsProjectModalOpen={setIsProjectModalOpen}
         activeCategory={activeCategory}
         projects={localProjects}
+        prefilledDateTime={prefilledDateTime}
       />
     </div>
   );

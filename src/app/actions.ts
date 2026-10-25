@@ -10,7 +10,7 @@ import { cookies } from "next/headers";
 import fs from "node:fs";
 import path from "node:path";
 
-import { encryptText } from "@/lib/encryption";
+import { encryptText, decryptText } from "@/lib/encryption";
 
 // 1. Проверка авторизации (теперь проверяет куку сессии)
 export async function checkVaultAuth() {
@@ -164,26 +164,150 @@ export async function ensureSeedData() {
 export async function createNote(formData: FormData) {
   if (!(await checkVaultAuth())) return;
 
-  const title = formData.get("title") as string;
+  const rawTitle = formData.get("title") as string;
   const rawContent = formData.get("content") as string;
   const category = (formData.get("category") as string) || "DEV";
   const projectId = formData.get("projectId") as string;
+  const eventType = (formData.get("eventType") as string) || "NOTE";
+  const scheduledForRaw = formData.get("scheduledFor") as string;
+  const remindOffsetRaw = formData.get("remindOffset") as string;
 
-  if (!title || !rawContent) return;
+  if (!rawTitle || !rawContent) return;
 
-  // ШИФРУЕМ ТЕКСТ ПЕРЕД ЗАПИСЬЮ В БД
-  const content = encryptText(rawContent);
+  const scheduledFor = scheduledForRaw ? new Date(scheduledForRaw) : null;
+  const remindOffset =
+    remindOffsetRaw && remindOffsetRaw !== "NONE" ? parseInt(remindOffsetRaw, 10) : null;
+
+  // ШИФРУЕМ ЗАГОЛОВОК И КОНТЕНТ ПЕРЕД ЗАПИСЬЮ В БД
+  const encryptedTitle = encryptText(rawTitle);
+  const encryptedContent = encryptText(rawContent);
 
   await prisma.note.create({
     data: {
-      title,
-      content, // Сохраняется в зашифрованном виде!
+      title: encryptedTitle,
+      content: encryptedContent,
       category,
+      eventType,
       projectId: projectId || null,
+      scheduledFor,
+      remindOffset,
+      reminderSent: false,
+      isPinned: true,
     },
   });
 
+  revalidatePath("/");
   revalidatePath("/vault");
+}
+
+// Перенос заметки/события в Архив (Выполнено) и обратно — без удаления из БД!
+export async function toggleNoteArchive(noteId: string, currentArchived: boolean) {
+  if (!(await checkVaultAuth())) return;
+
+  await prisma.note.update({
+    where: { id: noteId },
+    data: { isArchived: !currentArchived },
+  });
+
+  revalidatePath("/vault");
+}
+
+// Фоновая проверка событий и отправка РАСШИФРОВАННОГО уведомления в Telegram
+export async function checkAndSendReminders() {
+  const now = new Date();
+
+  const pendingNotes = await prisma.note.findMany({
+    where: {
+      scheduledFor: { not: null },
+      remindOffset: { not: null },
+      reminderSent: false,
+      isArchived: false, // Если уже выполнено/в архиве — не беспокоим!
+    },
+    include: { project: true },
+  });
+
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  const relayUrl = process.env.TELEGRAM_RELAY_URL;
+
+  if (!botToken || !chatId) return { sent: 0 };
+
+  let sentCount = 0;
+
+  for (const item of pendingNotes) {
+    if (!item.scheduledFor || item.remindOffset === null) continue;
+
+    const triggerTime = new Date(item.scheduledFor.getTime() - item.remindOffset * 60 * 1000);
+
+    if (now >= triggerTime) {
+      // РАСШИФРОВЫВАЕМ ДАННЫЕ ИЗ БАЗЫ ПЕРЕД ОТПРАВКОЙ В TELEGRAM
+      const cleanTitle = decryptText(item.title);
+      const cleanContent = decryptText(item.content);
+
+      const typeEmoji: Record<string, string> = {
+        NOTE: "📝 Заметка",
+        MEETING: "🤝 Встреча / Созвон",
+        DEADLINE: "🔥 ДЕДЛАЙН ПРОЕКТА",
+        EVENT: "🎉 Мероприятие",
+      };
+
+      const formattedTime = item.scheduledFor.toLocaleString("ru-RU", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+
+      const offsetText =
+        item.remindOffset === 0
+          ? "Прямо сейчас!"
+          : item.remindOffset >= 60
+          ? `Через ${Math.round(item.remindOffset / 60)} ч.`
+          : `Через ${item.remindOffset} мин.`;
+
+      const text = [
+        `⏰ MAINFRAME CHRONOS // НАПОМИНАНИЕ (${offsetText})`,
+        ``,
+        `📌 Тип: ${typeEmoji[item.eventType] || "Событие"}`,
+        `🎯 Событие: ${cleanTitle}`,
+        `🕒 Время: ${formattedTime}`,
+        item.project ? `🔗 Узел: ${item.project.title}` : null,
+        ``,
+        `💬 Детали:`,
+        `${cleanContent}`,
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+      try {
+        const targetUrl = relayUrl || `https://api.telegram.org/bot${botToken}/sendMessage`;
+        await fetch(targetUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(
+            relayUrl
+              ? { secret: "mainframe-relay-2026", botToken, chatId, text }
+              : { chat_id: chatId, text }
+          ),
+        });
+
+        await prisma.note.update({
+          where: { id: item.id },
+          data: { reminderSent: true },
+        });
+        sentCount++;
+      } catch (err) {
+        console.error("Ошибка отправки напоминания в ТГ:", err);
+      }
+    }
+  }
+
+  if (sentCount > 0) {
+    revalidatePath("/vault");
+  }
+
+  return { sent: sentCount };
 }
 
 // Создание проекта или личного направления
@@ -512,4 +636,178 @@ export async function convertLeadToProject(leadId: string) {
   });
 
   revalidatePath("/vault");
+}
+
+// ==========================================
+// 4.1. БЭКАП БАЗЫ ДАННЫХ В TELEGRAM
+// ==========================================
+export async function sendDatabaseBackupToTelegram() {
+  if (!(await checkVaultAuth())) return { success: false, error: "Unauthorized" };
+
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  const relayUrl = process.env.TELEGRAM_RELAY_URL;
+
+  if (!botToken || !chatId) {
+    return { success: false, error: "Telegram keys missing in .env" };
+  }
+
+  // Путь к файлу SQLite базы
+  const dbPath = path.join(process.cwd(), "prisma", "dev.db");
+  const fallbackDbPath = path.join(process.cwd(), "dev.db");
+  const targetPath = fs.existsSync(dbPath) ? dbPath : fallbackDbPath;
+
+  if (!fs.existsSync(targetPath)) {
+    return { success: false, error: "Database file dev.db not found" };
+  }
+
+  try {
+    const fileBuffer = fs.readFileSync(targetPath);
+    const dateStr = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    const fileName = `mainframe_backup_${dateStr}.db`;
+    const caption = `💾 *MAINFRAME HUB // РЕЗЕРВНАЯ КОПИЯ ЯДРА*\n\n📅 Дата: \`${new Date().toLocaleString("ru-RU")}\`\n📦 Файл: \`${fileName}\`\n🔒 Все заметки внутри зашифрованы AES-256.`;
+
+    if (relayUrl) {
+      // Отправляем через европейский шлюз Okaeri в формате Base64
+      const res = await fetch(relayUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          secret: "mainframe-relay-2026",
+          botToken,
+          chatId,
+          text: caption,
+          documentBase64: fileBuffer.toString("base64"),
+          filename: fileName,
+        }),
+      });
+
+      const data = await res.json();
+      return { success: data.ok ?? true };
+    } else {
+      // Прямая отправка (если есть VPN или запуск на зарубежном VPS)
+      const formData = new FormData();
+      formData.append("chat_id", chatId);
+      formData.append("document", new Blob([fileBuffer]), fileName);
+      formData.append("caption", caption);
+      formData.append("parse_mode", "Markdown");
+
+      const res = await fetch(`https://api.telegram.org/bot${botToken}/sendDocument`, {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await res.json();
+      return { success: data.ok };
+    }
+  } catch (err: any) {
+    console.error("Ошибка отправки бэкапа:", err);
+    return { success: false, error: err.message };
+  }
+}
+
+// ==========================================
+// 4.2. УТРЕННИЙ ДАЙДЖЕСТ (DAILY PULSE)
+// ==========================================
+export async function sendDailyDigestToTelegram() {
+  if (!(await checkVaultAuth())) return { success: false, error: "Unauthorized" };
+
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  const relayUrl = process.env.TELEGRAM_RELAY_URL;
+
+  if (!botToken || !chatId) return { success: false };
+
+  // 1. Получаем задачи В РАБОТЕ
+  const inProgressStages = await prisma.stage.findMany({
+    where: { status: "IN_PROGRESS" },
+    include: { project: true },
+    take: 5,
+  });
+
+  // 2. Получаем сегодняшние события из Ежедневника
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const todayEnd = new Date();
+  todayEnd.setHours(23, 59, 59, 999);
+
+  const todayNotes = await prisma.note.findMany({
+    where: {
+      scheduledFor: { gte: todayStart, lte: todayEnd },
+      isArchived: false,
+    },
+    include: { project: true },
+  });
+
+  // 3. Получаем новые заявки из CRM
+  const newLeadsCount = await prisma.lead.count({
+    where: { status: "NEW" },
+  });
+
+  const nowFormatted = new Date().toLocaleDateString("ru-RU", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  });
+
+  const lines: string[] = [
+    `🌅 *MAINFRAME // УТРЕННИЙ ПУЛЬС СИСТЕМЫ*`,
+    `📅 _${nowFormatted}_`,
+    "",
+  ];
+
+  // Блок новых заявок
+  if (newLeadsCount > 0) {
+    lines.push(`🔥 *Входящие заявки в CRM:* \`${newLeadsCount} новых\``);
+  } else {
+    lines.push(`📭 *Входящие заявки:* новых обращений нет`);
+  }
+  lines.push("");
+
+  // Блок расписания на сегодня
+  lines.push(`🕒 *План на сегодня (${todayNotes.length}):*`);
+  if (todayNotes.length === 0) {
+    lines.push(`   _Событий и дедлайнов на сегодня не запланировано._`);
+  } else {
+    todayNotes.forEach((n) => {
+      const cleanTitle = decryptText(n.title);
+      const timeStr = n.scheduledFor
+        ? new Date(n.scheduledFor).toLocaleTimeString("ru-RU", {
+            hour: "2-digit",
+            minute: "2-digit",
+          })
+        : "Весь день";
+      lines.push(`   • \`[${timeStr}]\` *${cleanTitle}*`);
+    });
+  }
+  lines.push("");
+
+  // Блок активных задач в разработке
+  lines.push(`⚡ *Активный фокус в Канбане (${inProgressStages.length}):*`);
+  if (inProgressStages.length === 0) {
+    lines.push(`   _Нет задач со статусом «В работе»._`);
+  } else {
+    inProgressStages.forEach((s) => {
+      lines.push(`   ⚡ ${s.title} _(${s.project.title})_`);
+    });
+  }
+
+  const text = lines.join("\n");
+
+  try {
+    const targetUrl = relayUrl || `https://api.telegram.org/bot${botToken}/sendMessage`;
+    await fetch(targetUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        relayUrl
+          ? { secret: "mainframe-relay-2026", botToken, chatId, text }
+          : { chat_id: chatId, text, parse_mode: "Markdown" }
+      ),
+    });
+    return { success: true };
+  } catch (err) {
+    console.error("Ошибка отправки утреннего дайджеста:", err);
+    return { success: false };
+  }
 }

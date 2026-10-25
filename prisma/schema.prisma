@@ -42,11 +42,19 @@ model Stage {
 
 // 3. Личные заметки и мысли (Твой приватный блокнот в Хабе)
 model Note {
-  id        String   @id @default(cuid())
-  title     String
-  content   String // Текст заметки, команды, сниппеты кода
-  category  String   @default("DEV") // DEV, BUSINESS, WORK, FAMILY
-  isPinned  Boolean  @default(false)
+  id         String  @id @default(cuid())
+  title      String
+  content    String // Текст заметки, команды, сниппеты кода
+  category   String  @default("DEV") // DEV, BUSINESS, WORK, FAMILY
+  eventType  String  @default("NOTE") // NOTE (Заметка), MEETING (Встреча), DEADLINE (Дедлайн), EVENT (Мероприятие)
+  isPinned   Boolean @default(false)
+  isArchived Boolean @default(false) // true = Выполнено / В архиве (не удалено!)
+
+  // Поля для Ежедневника и Telegram-уведомлений:
+  scheduledFor DateTime? // Дата и время события / встречи / дедлайна
+  remindOffset Int? // За сколько минут предупредить в ТГ (напр. 15, 60, 1440). null = без уведомления
+  reminderSent Boolean   @default(false) // Отправлено ли уже уведомление в Telegram
+
   projectId String? // Может быть привязана к проекту или быть общей
   project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
   createdAt DateTime @default(now())

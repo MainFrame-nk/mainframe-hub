@@ -70,7 +70,9 @@ export default async function Home() {
         <section className="mb-14">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-obsidian-card border border-obsidian-border text-xs font-mono text-cyber-cyan mb-6">
             <Sparkles className="w-3.5 h-3.5 text-cyber-crimson" />
-            FULL-STACK ARCHITECT // MAINFRAME BRAND
+            <span>FULL-STACK ARCHITECT</span>
+            <span className="text-slate-600">//</span>
+            <span className="text-cyber-purple font-bold">MAINFRAME BRAND</span>
           </div>
 
           <h1 className="text-5xl md:text-7xl font-extrabold tracking-tight mb-6 leading-[1.1]">
