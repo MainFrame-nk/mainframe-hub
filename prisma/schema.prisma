@@ -23,10 +23,12 @@ model Project {
   techStack   String // Стек через запятую: "Next.js, Prisma, TypeScript"
   accentColor String  @default("purple") // purple, cyan, crimson
 
-  stages    Stage[] // Этапы разработки
-  notes     Note[] // Личные заметки по проекту
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  stages       Stage[] // Этапы разработки
+  notes        Note[] // Личные заметки по проекту
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  transactions Transaction[]
+  contacts     Contact[]
 }
 
 // 2. Этапы разработки (Роадмап проекта)
@@ -59,6 +61,8 @@ model Note {
   project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  contact   Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  contactId String?
 }
 
 // Новая модель для заявок от клиентов с сайта
@@ -87,4 +91,62 @@ model AuthCode {
   code      String // Сам 6-значный код
   expiresAt DateTime // Время жизни (например, 5 минут)
   used      Boolean  @default(false)
+}
+
+// МОДЕЛЬ ТРАНЗАКЦИЙ (ДОХОДЫ И РАСХОДЫ)
+model Transaction {
+  id          String   @id @default(cuid())
+  type        String   @default("EXPENSE") // "INCOME" (Доход) или "EXPENSE" (Расход)
+  amount      Float // Сумма
+  category    String   @default("OTHER") // FOOD, SERVERS, BUSINESS, HOME, FUN, SALARY и т.д.
+  description String? // Комментарий (зашифруем через AES-256)
+  date        DateTime @default(now()) // Дата операции (для фильтра по месяцам)
+
+  projectId String? // Привязка к проекту (опционально)
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now())
+}
+
+// МОДЕЛЬ ПЛАНОВ ПОКУПОК (WISHLIST / БЮДЖЕТИРОВАНИЕ)
+model WishlistItem {
+  id          String   @id @default(cuid())
+  title       String // Название цели/покупки
+  targetPrice Float // Целевая стоимость
+  savedAmount Float    @default(0) // Сколько уже отложено
+  priority    String   @default("MEDIUM") // "LOW", "MEDIUM", "HIGH"
+  category    String   @default("TECH")
+  isBought    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+}
+
+// МОДЕЛЬ ЛЮДЕЙ И СВЯЗЕЙ (PERSONAL CRM - ЗАШИФРОВАНО AES-256)
+model Contact {
+  id        String  @id @default(cuid())
+  name      String // Зашифровано AES-256
+  avatarUrl String? // Зашифровано AES-256 (URL фото)
+  tag       String  @default("PARTNER") // DEV, CLIENT, PARTNER, FRIEND, FAMILY
+  role      String? // Например: "Backend Dev", "Инвестор", "Заказчик" (Зашифровано)
+  telegram  String? // Зашифровано AES-256
+  phone     String? // Зашифровано AES-256
+  birthday  String? // Формат YYYY-MM-DD (Зашифровано AES-256)
+  bio       String? // Личное досье / описание (Зашифровано AES-256)
+
+  projectId String? // Привязка к команде проекта
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  notes     Note[] // Заметки и задачи, связанные с этим человеком
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// МОДЕЛЬ ЛИЧНОГО РАДИО И АУДИОТЕКИ (MAINFRAME AUDIO)
+model AudioTrack {
+  id        String   @id @default(cuid())
+  title     String // Зашифровано AES-256 (Название трека)
+  artist    String // Зашифровано AES-256 (Исполнитель)
+  genre     String   @default("CYBERPUNK") // CYBERPUNK, PHONK, SYNTHWAVE, FOCUS, ROCK, OTHER
+  filename  String // Имя файла в закрытой папке storage/vault-audio
+  fileSize  Int      @default(0) // Размер в байтах
+  isFav     Boolean  @default(false) // Избранное (Сердечко)
+  createdAt DateTime @default(now())
 }

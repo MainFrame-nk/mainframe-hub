@@ -1,220 +1,338 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "motion/react";
+import { createPortal } from "react-dom";
+import {
+  ProjectItem,
+  NoteItem,
+  ContactItem,
+} from "./vault/types";
+import { useGlobalRadio } from "./vault/GlobalRadioProvider";
 import {
   Search,
   Terminal,
-  FolderPlus,
+  FolderGit2,
   StickyNote,
+  Users,
+  Radio,
+  Wallet,
   Inbox,
-  ListTodo,
-  ArrowRight,
-  CornerDownLeft,
-  Sparkles,
+  Plus,
+  Play,
+  X,
 } from "lucide-react";
 
-interface CommandPaletteProps {
-  projects: { id: string; title: string; category: string }[];
-  onSelectProject: (projectId: string) => void;
-  onSwitchView: (view: "KANBAN" | "NOTES" | "CRM") => void;
+interface Props {
+  projects: ProjectItem[];
+  notes?: NoteItem[];
+  contacts?: ContactItem[];
+  onSelectProject: (id: string) => void;
+  onSwitchView: (view: "KANBAN" | "NOTES" | "FINANCE" | "PEOPLE" | "RADIO" | "CRM") => void;
   onOpenNewProject: () => void;
   onOpenNewNote: () => void;
 }
 
 export default function VaultCommandPalette({
   projects,
+  notes = [],
+  contacts = [],
   onSelectProject,
   onSwitchView,
   onOpenNewProject,
   onOpenNewNote,
-}: CommandPaletteProps) {
-  const [isOpen, setIsOpen] = useState(false);
+}: Props) {
+  const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [mounted, setMounted] = useState(false);
+
+  const { tracks, playTrack, startRadioStream } = useGlobalRadio();
 
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+    setMounted(true);
+    const down = (e: KeyboardEvent) => {
+      if ((e.key === "k" || e.key === "K" || e.key === "л" || e.key === "Л") && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
-        setIsOpen((prev) => !prev);
+        setOpen((prev) => !prev);
       }
       if (e.key === "Escape") {
-        setIsOpen(false);
+        setOpen(false);
       }
     };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    window.addEventListener("keydown", down);
+    return () => window.removeEventListener("keydown", down);
   }, []);
 
-  const quickActions = [
-    {
-      id: "act-new-proj",
-      label: "Создать новый проект / узел",
-      shortcut: "Action",
-      icon: FolderPlus,
-      color: "text-cyber-purple",
-      run: () => {
-        onOpenNewProject();
-        setIsOpen(false);
-      },
-    },
-    {
-      id: "act-new-note",
-      label: "Записать зашифрованную заметку / сниппет",
-      shortcut: "Action",
-      icon: StickyNote,
-      color: "text-cyber-cyan",
-      run: () => {
-        onOpenNewNote();
-        setIsOpen(false);
-      },
-    },
-    {
-      id: "act-view-kanban",
-      label: "Открыть Канбан-доску проектов",
-      shortcut: "View",
-      icon: ListTodo,
-      color: "text-emerald-400",
-      run: () => {
-        onSwitchView("KANBAN");
-        setIsOpen(false);
-      },
-    },
-    {
-      id: "act-view-crm",
-      label: "Открыть Мини-CRM входящих заявок",
-      shortcut: "CRM",
-      icon: Inbox,
-      color: "text-cyber-crimson",
-      run: () => {
-        onSwitchView("CRM");
-        setIsOpen(false);
-      },
-    },
-  ];
+  const [usageMap, setUsageMap] = useState<Record<string, number>>({});
 
-  const filteredActions = quickActions.filter((a) =>
-    a.label.toLowerCase().includes(query.toLowerCase())
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("vault_cmd_usage") || "{}");
+      setUsageMap(saved);
+    } catch {}
+  }, [open]);
+
+  const recordUsage = (id: string) => {
+    try {
+      const next = { ...usageMap, [id]: (usageMap[id] || 0) + 1 };
+      setUsageMap(next);
+      localStorage.setItem("vault_cmd_usage", JSON.stringify(next));
+    } catch {}
+  };
+
+  const q = query.toLowerCase().trim();
+
+  const matchedProjects = projects
+    .filter((p) => p.title.toLowerCase().includes(q) || p.tagline.toLowerCase().includes(q))
+    .sort((a, b) => (usageMap[b.id] || 0) - (usageMap[a.id] || 0));
+
+  const matchedContacts = contacts
+    .filter(
+      (c) =>
+        c.name.toLowerCase().includes(q) ||
+        (c.role && c.role.toLowerCase().includes(q)) ||
+        (c.telegram && c.telegram.toLowerCase().includes(q))
+    )
+    .sort((a, b) => (usageMap[b.id] || 0) - (usageMap[a.id] || 0));
+
+  const matchedTracks = tracks
+    .filter((t) => t.title.toLowerCase().includes(q) || t.artist.toLowerCase().includes(q))
+    .sort((a, b) => {
+      // Сначала Избранные (❤️), затем самые часто включаемые, затем новые
+      if (a.isFav !== b.isFav) return a.isFav ? -1 : 1;
+      return (usageMap[b.id] || 0) - (usageMap[a.id] || 0);
+    });
+    
+  const matchedNotes = notes.filter(
+    (n) => n.title.toLowerCase().includes(q) || n.content.toLowerCase().includes(q)
   );
 
-  const filteredProjects = projects.filter((p) =>
-    p.title.toLowerCase().includes(query.toLowerCase())
-  );
+  const modalContent = open ? (
+    <div
+      className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-md flex items-start justify-center pt-20 p-4"
+      onClick={() => setOpen(false)}
+    >
+      <div
+        className="w-full max-w-2xl rounded-2xl bg-obsidian-card border border-cyber-cyan/50 shadow-[0_0_50px_rgba(0,0,0,0.95)] overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Поле ввода запроса */}
+        <div className="flex items-center gap-3 px-4 py-3.5 border-b border-obsidian-border bg-obsidian">
+          <Search className="w-4 h-4 text-cyber-cyan shrink-0" />
+          <input
+            autoFocus
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Поиск по всему Vault: проекты, люди, заметки, треки радио, команды..."
+            className="w-full bg-transparent text-sm font-mono text-white outline-none placeholder:text-slate-500"
+          />
+          {query && (
+            <button
+              onClick={() => setQuery("")}
+              className="text-slate-500 hover:text-white cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+          <span className="px-2 py-0.5 rounded bg-obsidian-card border border-obsidian-border text-[10px] font-mono text-slate-400">
+            ESC
+          </span>
+        </div>
+
+        <div className="max-h-[65vh] overflow-y-auto p-3 space-y-4">
+          {/* 1. БЫСТРЫЕ КОМАНДЫ И ПЕРЕХОДЫ ПО РАЗДЕЛАМ */}
+          <div>
+            <p className="px-2 pb-1.5 text-[10px] font-mono uppercase text-slate-500">
+              ⚡ Быстрые действия и навигация
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+              <button
+                onClick={() => {
+                  onOpenNewNote();
+                  setOpen(false);
+                }}
+                className="p-2.5 rounded-xl bg-obsidian hover:bg-cyber-cyan/15 border border-obsidian-border hover:border-cyber-cyan/40 text-left flex items-center gap-2 text-xs font-mono text-cyber-cyan cursor-pointer transition-all"
+              >
+                <Plus className="w-3.5 h-3.5" /> + Новая заметка
+              </button>
+              <button
+                onClick={() => {
+                  onOpenNewProject();
+                  setOpen(false);
+                }}
+                className="p-2.5 rounded-xl bg-obsidian hover:bg-cyber-purple/15 border border-obsidian-border hover:border-cyber-purple/40 text-left flex items-center gap-2 text-xs font-mono text-cyber-purple cursor-pointer transition-all"
+              >
+                <Plus className="w-3.5 h-3.5" /> + Новый проект
+              </button>
+              <button
+                onClick={() => {
+                  startRadioStream();
+                  setOpen(false);
+                }}
+                className="p-2.5 rounded-xl bg-obsidian hover:bg-emerald-500/15 border border-obsidian-border hover:border-emerald-500/40 text-left flex items-center gap-2 text-xs font-mono text-emerald-400 cursor-pointer transition-all"
+              >
+                <Radio className="w-3.5 h-3.5" /> Включить Радио
+              </button>
+              <button
+                onClick={() => {
+                  onSwitchView("FINANCE");
+                  setOpen(false);
+                }}
+                className="p-2 rounded-xl bg-obsidian hover:bg-obsidian-card border border-obsidian-border text-left flex items-center gap-2 text-xs font-mono text-slate-300 cursor-pointer"
+              >
+                <Wallet className="w-3.5 h-3.5 text-amber-400" /> Финансы
+              </button>
+              <button
+                onClick={() => {
+                  onSwitchView("PEOPLE");
+                  setOpen(false);
+                }}
+                className="p-2 rounded-xl bg-obsidian hover:bg-obsidian-card border border-obsidian-border text-left flex items-center gap-2 text-xs font-mono text-slate-300 cursor-pointer"
+              >
+                <Users className="w-3.5 h-3.5 text-emerald-400" /> Люди (CRM)
+              </button>
+              <button
+                onClick={() => {
+                  onSwitchView("CRM");
+                  setOpen(false);
+                }}
+                className="p-2 rounded-xl bg-obsidian hover:bg-obsidian-card border border-obsidian-border text-left flex items-center gap-2 text-xs font-mono text-slate-300 cursor-pointer"
+              >
+                <Inbox className="w-3.5 h-3.5 text-cyber-crimson" /> Заявки
+              </button>
+            </div>
+          </div>
+
+          {/* 2. ПРОЕКТЫ */}
+          {matchedProjects.length > 0 && (
+            <div>
+              <p className="px-2 pb-1.5 text-[10px] font-mono uppercase text-slate-500">
+                📁 Проекты ({matchedProjects.length})
+              </p>
+              <div className="space-y-1">
+                {matchedProjects.slice(0, 5).map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => {
+                      onSwitchView("KANBAN");
+                      onSelectProject(p.id);
+                      setOpen(false);
+                    }}
+                    className="w-full px-3 py-2 rounded-xl hover:bg-obsidian flex items-center justify-between text-left transition-colors cursor-pointer"
+                  >
+                    <span className="flex items-center gap-2 text-xs font-bold text-white">
+                      <FolderGit2 className="w-3.5 h-3.5 text-cyber-purple" />
+                      {p.title}
+                    </span>
+                    <span className="text-[10px] font-mono text-slate-500">{p.category}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 3. ЛЮДИ И КОНТАКТЫ */}
+          {matchedContacts.length > 0 && (
+            <div>
+              <p className="px-2 pb-1.5 text-[10px] font-mono uppercase text-slate-500">
+                👥 Люди и Контакты ({matchedContacts.length})
+              </p>
+              <div className="space-y-1">
+                {matchedContacts.slice(0, 5).map((c) => (
+                  <button
+                    key={c.id}
+                    onClick={() => {
+                      onSwitchView("PEOPLE");
+                      setOpen(false);
+                    }}
+                    className="w-full px-3 py-2 rounded-xl hover:bg-obsidian flex items-center justify-between text-left transition-colors cursor-pointer"
+                  >
+                    <span className="flex items-center gap-2 text-xs font-bold text-slate-200">
+                      <Users className="w-3.5 h-3.5 text-emerald-400" />
+                      {c.name}
+                      {c.role && <span className="text-cyber-cyan font-mono">({c.role})</span>}
+                    </span>
+                    {c.telegram && (
+                      <span className="text-[11px] font-mono text-slate-400">{c.telegram}</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 4. МУЗЫКАЛЬНЫЕ ТРЕКИ (ЗАПУСК ПРЯМО ИЗ CTRL+K!) */}
+          {matchedTracks.length > 0 && (
+            <div>
+              <p className="px-2 pb-1.5 text-[10px] font-mono uppercase text-slate-500">
+                🎵 Треки в Радио — нажми для воспроизведения ({matchedTracks.length})
+              </p>
+              <div className="space-y-1">
+                {matchedTracks.slice(0, 5).map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => {
+                      playTrack(t);
+                      setOpen(false);
+                    }}
+                    className="w-full px-3 py-2 rounded-xl hover:bg-obsidian flex items-center justify-between text-left transition-colors cursor-pointer"
+                  >
+                    <span className="flex items-center gap-2 text-xs font-bold text-cyber-cyan">
+                      <Play className="w-3.5 h-3.5" />
+                      {t.artist} — {t.title}
+                    </span>
+                    <span className="text-[10px] font-mono text-slate-500">{t.genre}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 5. ЗАМЕТКИ */}
+          {q && matchedNotes.length > 0 && (
+            <div>
+              <p className="px-2 pb-1.5 text-[10px] font-mono uppercase text-slate-500">
+                📝 Заметки ({matchedNotes.length})
+              </p>
+              <div className="space-y-1">
+                {matchedNotes.slice(0, 4).map((n) => (
+                  <button
+                    key={n.id}
+                    onClick={() => {
+                      onSwitchView("NOTES");
+                      setOpen(false);
+                    }}
+                    className="w-full px-3 py-2 rounded-xl hover:bg-obsidian flex items-center justify-between text-left transition-colors cursor-pointer"
+                  >
+                    <span className="flex items-center gap-2 text-xs text-slate-200 truncate">
+                      <StickyNote className="w-3.5 h-3.5 text-cyber-purple shrink-0" />
+                      {n.title}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  ) : null;
 
   return (
     <>
-      {/* Кнопка-триггер для шапки дашборда */}
       <button
-        onClick={() => setIsOpen(true)}
-        className="px-3 py-2 rounded-xl bg-obsidian border border-obsidian-border hover:border-cyber-cyan text-xs font-mono text-slate-400 hover:text-white flex items-center gap-2.5 transition-all cursor-pointer"
+        type="button"
+        onClick={() => setOpen(true)}
+        className="px-3 py-2 rounded-xl bg-obsidian border border-obsidian-border hover:border-cyber-cyan/50 text-slate-300 hover:text-white font-mono text-xs flex items-center gap-2 transition-all cursor-pointer"
+        title="Глобальный поиск и терминал команд (Ctrl + K)"
       >
-        <Search className="w-3.5 h-3.5 text-cyber-cyan" />
-        <span>Быстрый терминал...</span>
-        <kbd className="px-1.5 py-0.5 text-[10px] rounded bg-obsidian-card border border-obsidian-border text-cyber-cyan">
+        <Terminal className="w-3.5 h-3.5 text-cyber-cyan" />
+        <span className="hidden md:inline">Команды</span>
+        <kbd className="px-1.5 py-0.5 rounded bg-obsidian-card border border-obsidian-border text-[10px] text-cyber-cyan">
           Ctrl+K
         </kbd>
       </button>
 
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => setIsOpen(false)}
-            className="fixed inset-0 z-50 bg-obsidian/80 backdrop-blur-md flex items-start justify-center pt-24 p-4"
-          >
-            <motion.div
-              initial={{ scale: 0.95, y: -15, opacity: 0 }}
-              animate={{ scale: 1, y: 0, opacity: 1 }}
-              exit={{ scale: 0.95, y: -15, opacity: 0 }}
-              transition={{ duration: 0.15 }}
-              onClick={(e) => e.stopPropagation()}
-              className="max-w-xl w-full bg-obsidian-card border border-cyber-cyan/50 rounded-2xl shadow-[0_0_60px_rgba(0,240,255,0.2)] overflow-hidden"
-            >
-              {/* Поле поиска */}
-              <div className="flex items-center gap-3 px-4 py-3.5 border-b border-obsidian-border bg-obsidian/60">
-                <Terminal className="w-4 h-4 text-cyber-cyan shrink-0" />
-                <input
-                  autoFocus
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Введи команду или название проекта (Esc — закрыть)..."
-                  className="w-full bg-transparent text-sm font-mono text-white outline-none placeholder:text-slate-500"
-                />
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-obsidian border border-obsidian-border text-slate-400">
-                  ESC
-                </span>
-              </div>
-
-              <div className="max-h-96 overflow-y-auto p-3 space-y-4">
-                {/* Секция 1: Быстрые команды */}
-                {filteredActions.length > 0 && (
-                  <div>
-                    <div className="px-2 pb-1.5 text-[10px] font-mono text-slate-500 uppercase tracking-wider">
-                      Системные действия
-                    </div>
-                    <div className="space-y-1">
-                      {filteredActions.map((act) => {
-                        const Icon = act.icon;
-                        return (
-                          <button
-                            key={act.id}
-                            onClick={act.run}
-                            className="w-full px-3 py-2.5 rounded-xl hover:bg-obsidian flex items-center justify-between text-left group transition-colors cursor-pointer"
-                          >
-                            <div className="flex items-center gap-3">
-                              <Icon className={`w-4 h-4 ${act.color}`} />
-                              <span className="text-xs font-mono text-slate-200 group-hover:text-white">
-                                {act.label}
-                              </span>
-                            </div>
-                            <span className="text-[10px] font-mono text-slate-500 group-hover:text-cyber-cyan flex items-center gap-1">
-                              {act.shortcut} <CornerDownLeft className="w-3 h-3" />
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {/* Секция 2: Мгновенный переход к Канбану узла */}
-                {filteredProjects.length > 0 && (
-                  <div>
-                    <div className="px-2 pb-1.5 text-[10px] font-mono text-slate-500 uppercase tracking-wider">
-                      Быстрый фокус на проекте (Project Dock)
-                    </div>
-                    <div className="space-y-1">
-                      {filteredProjects.map((proj) => (
-                        <button
-                          key={proj.id}
-                          onClick={() => {
-                            onSwitchView("KANBAN");
-                            onSelectProject(proj.id);
-                            setIsOpen(false);
-                          }}
-                          className="w-full px-3 py-2.5 rounded-xl hover:bg-obsidian flex items-center justify-between text-left group transition-colors cursor-pointer"
-                        >
-                          <div className="flex items-center gap-2.5">
-                            <Sparkles className="w-3.5 h-3.5 text-cyber-purple" />
-                            <span className="text-xs font-mono text-slate-200 group-hover:text-cyber-cyan font-bold">
-                              {proj.title}
-                            </span>
-                          </div>
-                          <span className="text-[10px] font-mono text-slate-500 flex items-center gap-1">
-                            Открыть Канбан <ArrowRight className="w-3 h-3" />
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {mounted && modalContent ? createPortal(modalContent, document.body) : null}
     </>
   );
 }

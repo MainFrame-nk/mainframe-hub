@@ -2,12 +2,55 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
+/* ПО УМОЛЧАНИЮ — ФИРМЕННАЯ ТЕМНАЯ ТЕМА MAINFRAME (OBSIDIAN DARK) */
+:root,
+html.dark {
   color-scheme: dark;
+  --bg-obsidian: 9 10 15;         /* #090A0F */
+  --bg-obsidian-card: 18 19 26;   /* #12131A */
+  --bg-obsidian-border: 30 32 43; /* #1E202B */
+  --text-main: #F8FAFC;
+}
+
+/* СВЕТЛАЯ КОРПОРАТИВНАЯ ТЕМА (HIGH-TECH PLATINUM LIGHT) */
+html.light {
+  color-scheme: light;
+  --bg-obsidian: 243 246 252;        /* #F3F6FC — платиновый светлый фон */
+  --bg-obsidian-card: 255 255 255;   /* #FFFFFF — чистые белые карточки */
+  --bg-obsidian-border: 218 226 238; /* #DAE2EE — четкие технологичные рамки */
+  --text-main: #0F172A;
 }
 
 body {
-  background-color: #090A0F;
-  color: #F8FAFC;
+  background-color: rgb(var(--bg-obsidian));
+  color: var(--text-main);
   overflow-x: hidden;
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+/* Автоматическая адаптация светлого текста для Светлой темы (чтобы не менять код страниц!) */
+html.light .text-white,
+html.light .text-slate-100,
+html.light .text-slate-200 {
+  color: #0F172A !important;
+}
+
+html.light .text-slate-300,
+html.light .text-slate-400 {
+  color: #475569 !important;
+}
+
+html.light .text-slate-500 {
+  color: #64748B !important;
+}
+
+/* Сохраняем белый текст на ярких акцентных кнопках в любой теме */
+html.light .bg-cyber-purple,
+html.light .bg-cyber-crimson {
+  color: #FFFFFF !important;
+}
+
+/* Чуть более насыщенный бирюзовый текст на светлом фоне для идеальной читаемости */
+html.light .text-cyber-cyan {
+  color: #0284C7 !important;
 }

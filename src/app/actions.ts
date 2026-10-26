@@ -221,9 +221,9 @@ export async function checkAndSendReminders() {
       scheduledFor: { not: null },
       remindOffset: { not: null },
       reminderSent: false,
-      isArchived: false, // Если уже выполнено/в архиве — не беспокоим!
+      isArchived: false,
     },
-    include: { project: true },
+    include: { project: true, contact: true },
   });
 
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
@@ -234,24 +234,28 @@ export async function checkAndSendReminders() {
 
   let sentCount = 0;
 
+  // Безопасная очистка символов Markdown (*, _, `, [), чтобы Telegram не выдавал ошибку 400
+  const safeMd = (str: string) => str.replace(/([_*`\[])/g, "");
+
   for (const item of pendingNotes) {
     if (!item.scheduledFor || item.remindOffset === null) continue;
 
-    const triggerTime = new Date(item.scheduledFor.getTime() - item.remindOffset * 60 * 1000);
+    const scheduledTime = new Date(item.scheduledFor);
+    const triggerTime = new Date(scheduledTime.getTime() - item.remindOffset * 60 * 1000);
 
     if (now >= triggerTime) {
-      // РАСШИФРОВЫВАЕМ ДАННЫЕ ИЗ БАЗЫ ПЕРЕД ОТПРАВКОЙ В TELEGRAM
-      const cleanTitle = decryptText(item.title);
-      const cleanContent = decryptText(item.content);
+      const cleanTitle = safeMd(decryptText(item.title));
+      const cleanContent = safeMd(decryptText(item.content));
+      const contactName = item.contact ? safeMd(decryptText(item.contact.name)) : null;
 
       const typeEmoji: Record<string, string> = {
         NOTE: "📝 Заметка",
         MEETING: "🤝 Встреча / Созвон",
-        DEADLINE: "🔥 ДЕДЛАЙН ПРОЕКТА",
+        DEADLINE: "🔥 Просьба / Дедлайн",
         EVENT: "🎉 Мероприятие",
       };
 
-      const formattedTime = item.scheduledFor.toLocaleString("ru-RU", {
+      const formattedTime = scheduledTime.toLocaleString("ru-RU", {
         day: "2-digit",
         month: "2-digit",
         year: "numeric",
@@ -263,16 +267,17 @@ export async function checkAndSendReminders() {
         item.remindOffset === 0
           ? "Прямо сейчас!"
           : item.remindOffset >= 60
-          ? `Через ${Math.round(item.remindOffset / 60)} ч.`
-          : `Через ${item.remindOffset} мин.`;
+          ? `За ${Math.round(item.remindOffset / 60)} ч. до времени`
+          : `За ${item.remindOffset} мин. до времени`;
 
       const text = [
         `⏰ MAINFRAME CHRONOS // НАПОМИНАНИЕ (${offsetText})`,
         ``,
         `📌 Тип: ${typeEmoji[item.eventType] || "Событие"}`,
-        `🎯 Событие: ${cleanTitle}`,
-        `🕒 Время: ${formattedTime}`,
-        item.project ? `🔗 Узел: ${item.project.title}` : null,
+        `🎯 Задача: ${cleanTitle}`,
+        contactName ? `👤 Человек: ${contactName}` : null,
+        `🕒 Назначено на: ${formattedTime}`,
+        item.project ? `🔗 Проект: ${safeMd(item.project.title)}` : null,
         ``,
         `💬 Детали:`,
         `${cleanContent}`,
@@ -282,7 +287,7 @@ export async function checkAndSendReminders() {
 
       try {
         const targetUrl = relayUrl || `https://api.telegram.org/bot${botToken}/sendMessage`;
-        await fetch(targetUrl, {
+        const res = await fetch(targetUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(
@@ -292,11 +297,16 @@ export async function checkAndSendReminders() {
           ),
         });
 
-        await prisma.note.update({
-          where: { id: item.id },
-          data: { reminderSent: true },
-        });
-        sentCount++;
+        const resData = await res.json();
+        console.log("⏰ [CHRONOS REMINDER TG]:", resData);
+
+        if (resData.ok !== false) {
+          await prisma.note.update({
+            where: { id: item.id },
+            data: { reminderSent: true },
+          });
+          sentCount++;
+        }
       } catch (err) {
         console.error("Ошибка отправки напоминания в ТГ:", err);
       }
@@ -810,4 +820,456 @@ export async function sendDailyDigestToTelegram() {
     console.error("Ошибка отправки утреннего дайджеста:", err);
     return { success: false };
   }
+}
+
+// ==========================================
+// МОДУЛЬ ФИНАНСОВ И ПЛАНОВ ПОКУПОК (WISHLIST)
+// ==========================================
+
+// 1. Добавление дохода или расхода
+export async function createTransaction(formData: FormData) {
+  if (!(await checkVaultAuth())) return;
+
+  const type = (formData.get("type") as string) || "EXPENSE";
+  const amount = parseFloat(formData.get("amount") as string);
+  const category = (formData.get("category") as string) || "OTHER";
+  const rawDesc = (formData.get("description") as string) || "";
+  const dateStr = formData.get("date") as string;
+  const projectId = formData.get("projectId") as string;
+
+  if (isNaN(amount) || amount <= 0) return;
+
+  const description = rawDesc ? encryptText(rawDesc) : null;
+  const date = dateStr ? new Date(dateStr) : new Date();
+
+  await prisma.transaction.create({
+    data: {
+      type,
+      amount,
+      category,
+      description,
+      date,
+      projectId: projectId || null,
+    },
+  });
+
+  revalidatePath("/vault");
+}
+
+// 2. Удаление транзакции
+export async function deleteTransaction(id: string) {
+  if (!(await checkVaultAuth())) return;
+  await prisma.transaction.delete({ where: { id } });
+  revalidatePath("/vault");
+}
+
+// 3. Создание плана покупки (Wishlist)
+export async function createWishlistItem(formData: FormData) {
+  if (!(await checkVaultAuth())) return;
+
+  const title = formData.get("title") as string;
+  const targetPrice = parseFloat(formData.get("targetPrice") as string);
+  const savedAmount = parseFloat((formData.get("savedAmount") as string) || "0");
+  const priority = (formData.get("priority") as string) || "MEDIUM";
+  const category = (formData.get("category") as string) || "SERVERS";
+
+  if (!title || isNaN(targetPrice) || targetPrice <= 0) return;
+
+  await prisma.wishlistItem.create({
+    data: {
+      title: encryptText(title),
+      targetPrice,
+      savedAmount: isNaN(savedAmount) ? 0 : savedAmount,
+      priority,
+      category,
+    },
+  });
+
+  revalidatePath("/vault");
+}
+
+// 4. Пополнение копилки на покупку (+ сумма)
+export async function addSavedAmountToWishlist(id: string, addAmount: number) {
+  if (!(await checkVaultAuth())) return;
+
+  const item = await prisma.wishlistItem.findUnique({ where: { id } });
+  if (!item) return;
+
+  const nextSaved = Math.min(item.targetPrice, Math.max(0, item.savedAmount + addAmount));
+
+  await prisma.wishlistItem.update({
+    where: { id },
+    data: { savedAmount: nextSaved },
+  });
+
+  revalidatePath("/vault");
+}
+
+// 5. Исполнение мечты: кнопка «Куплено!» (переводит из плана в реальный расход текущего месяца)
+export async function markWishlistAsBought(id: string) {
+  if (!(await checkVaultAuth())) return;
+
+  const item = await prisma.wishlistItem.findUnique({ where: { id } });
+  if (!item) return;
+
+  await prisma.wishlistItem.update({
+    where: { id },
+    data: { isBought: true, savedAmount: item.targetPrice },
+  });
+
+  // Автоматически создаем транзакцию расхода
+  await prisma.transaction.create({
+    data: {
+      type: "EXPENSE",
+      amount: item.targetPrice,
+      category: item.category || "FUN",
+      description: item.title, // Уже зашифровано
+      date: new Date(),
+    },
+  });
+
+  revalidatePath("/vault");
+}
+
+// 6. Удаление из планов покупок
+export async function deleteWishlistItem(id: string) {
+  if (!(await checkVaultAuth())) return;
+  await prisma.wishlistItem.delete({ where: { id } });
+  revalidatePath("/vault");
+}
+
+// 7. СИНХРОНИЗАЦИЯ ТРАТ И ДОХОДОВ ИЗ TELEGRAM-БОТА (РАБОТАЕТ ДАЖЕ НА LOCALHOST!)
+const TG_CATEGORY_MAP: Record<string, string> = {
+  еда: "FOOD",
+  продукты: "FOOD",
+  кафе: "FOOD",
+  кофе: "FOOD",
+  сервер: "SERVERS",
+  серверы: "SERVERS",
+  хостинг: "SERVERS",
+  ит: "SERVERS",
+  бизнес: "BUSINESS",
+  проект: "BUSINESS",
+  работа: "BUSINESS",
+  дом: "HOME",
+  семья: "HOME",
+  квартира: "HOME",
+  развлечения: "FUN",
+  игры: "FUN",
+  отдых: "FUN",
+  транспорт: "TRANSPORT",
+  такси: "TRANSPORT",
+  авто: "TRANSPORT",
+};
+
+// Храним последний обработанный update_id в памяти процесса
+let lastProcessedUpdateId = 0;
+
+export async function syncTelegramFinanceMessages() {
+  if (!(await checkVaultAuth())) return { added: 0 };
+
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  const allowedChatId = process.env.TELEGRAM_CHAT_ID;
+  const relayUrl = process.env.TELEGRAM_RELAY_URL;
+
+  if (!botToken || !allowedChatId) return { added: 0, error: "Нет ключей ТГ" };
+
+  try {
+    // Запрашиваем новые сообщения через европейский шлюз Okaeri (или напрямую)
+    const res = await fetch(
+      relayUrl || `https://api.telegram.org/bot${botToken}/getUpdates`,
+      {
+        method: relayUrl ? "POST" : "GET",
+        headers: { "Content-Type": "application/json" },
+        body: relayUrl
+          ? JSON.stringify({
+              secret: "mainframe-relay-2026",
+              action: "getUpdates",
+              botToken,
+              offset: lastProcessedUpdateId ? lastProcessedUpdateId + 1 : undefined,
+            })
+          : undefined,
+      }
+    );
+
+    const data = await res.json();
+    if (!data?.ok || !Array.isArray(data.result)) return { added: 0 };
+
+    let addedCount = 0;
+    let highestUpdateId = lastProcessedUpdateId;
+
+    for (const update of data.result) {
+      if (update.update_id > highestUpdateId) {
+        highestUpdateId = update.update_id;
+      }
+
+      const msg = update.message;
+      if (!msg || !msg.text) continue;
+      if (String(msg.chat?.id) !== String(allowedChatId)) continue;
+
+      const text = msg.text.trim();
+      // Понимает: "- 1500 Еда Бизнес-ланч и кофе", "+ 50000 Бизнес Аванс", "1500 Еда Кофе"
+      const match = text.match(/^([+-])?\s*(\d+(?:[.,]\d+)?)\s+([^\s]+)(?:\s+(.*))?$/i);
+      if (!match) continue;
+
+      const sign = match[1] || "-";
+      const amount = parseFloat(match[2].replace(",", "."));
+      const rawCat = match[3].toLowerCase();
+      const comment = (match[4] || rawCat).trim();
+
+      const type = sign === "+" ? "INCOME" : "EXPENSE";
+      const category = TG_CATEGORY_MAP[rawCat] || "OTHER";
+
+      // Защита от дублей (проверяем по тексту и дате сообщения из ТГ)
+      const msgDate = new Date(msg.date * 1000);
+      const exists = await prisma.transaction.findFirst({
+        where: {
+          amount,
+          category,
+          date: msgDate,
+        },
+      });
+
+      if (!exists) {
+        await prisma.transaction.create({
+          data: {
+            type,
+            amount,
+            category,
+            description: encryptText(comment),
+            date: msgDate,
+          },
+        });
+        addedCount++;
+
+        // Отправляем ответ в Telegram об успешной записи
+        const replyText = [
+          type === "INCOME" ? "📈 *ДОХОД ЗАПИСАН В VAULT*" : "📉 *РАСХОД ЗАПИСАН В VAULT*",
+          `💰 Сумма: \`${amount.toLocaleString("ru-RU")} ₽\``,
+          `🏷 Категория: \`${category}\``,
+          `💬 Заметка: ${comment}`,
+        ].join("\n");
+
+        if (relayUrl) {
+          await fetch(relayUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              secret: "mainframe-relay-2026",
+              botToken,
+              chatId: allowedChatId,
+              text: replyText,
+            }),
+          });
+        }
+      }
+    }
+
+    if (highestUpdateId > 0) {
+      lastProcessedUpdateId = highestUpdateId;
+      // Подтверждаем Telegram-серверу, что сообщения прочитаны, чтобы они больше не висели в очереди
+      if (relayUrl) {
+        await fetch(relayUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            secret: "mainframe-relay-2026",
+            action: "getUpdates",
+            botToken,
+            offset: highestUpdateId + 1,
+          }),
+        });
+      }
+    }
+
+    if (addedCount > 0) {
+      revalidatePath("/vault");
+    }
+
+    return { added: addedCount };
+  } catch (err) {
+    console.error("Ошибка синхронизации финансов с ТГ:", err);
+    return { added: 0 };
+  }
+}
+
+// ==========================================
+// МОДУЛЬ ЛЮДЕЙ И СВЯЗЕЙ (ENCRYPTED PERSONAL CRM)
+// ==========================================
+
+// 1. Создание карточки человека (все личные поля шифруются AES-256)
+export async function createContact(formData: FormData) {
+  if (!(await checkVaultAuth())) return;
+
+  const name = (formData.get("name") as string)?.trim();
+  const tag = (formData.get("tag") as string) || "PARTNER";
+  const role = (formData.get("role") as string)?.trim() || "";
+  const telegram = (formData.get("telegram") as string)?.trim() || "";
+  const phone = (formData.get("phone") as string)?.trim() || "";
+  const birthday = (formData.get("birthday") as string)?.trim() || "";
+  const avatarUrl = (formData.get("avatarUrl") as string)?.trim() || "";
+  const bio = (formData.get("bio") as string)?.trim() || "";
+  const projectId = (formData.get("projectId") as string) || null;
+
+  if (!name) return;
+
+  await prisma.contact.create({
+    data: {
+      name: encryptText(name),
+      tag,
+      role: role ? encryptText(role) : null,
+      telegram: telegram ? encryptText(telegram) : null,
+      phone: phone ? encryptText(phone) : null,
+      birthday: birthday ? encryptText(birthday) : null,
+      avatarUrl: avatarUrl ? encryptText(avatarUrl) : null,
+      bio: bio ? encryptText(bio) : null,
+      projectId: projectId || null,
+    },
+  });
+
+  revalidatePath("/vault");
+}
+
+// 2. Обновление проекта/команды или досье контакта
+export async function updateContactProject(contactId: string, projectId: string | null) {
+  if (!(await checkVaultAuth())) return;
+
+  await prisma.contact.update({
+    where: { id: contactId },
+    data: { projectId: projectId || null },
+  });
+
+  revalidatePath("/vault");
+}
+
+// 3. Добавление заметки / встречи / задачи в досье человека (с датой и пушем в ТГ!)
+export async function createContactNote(formData: FormData) {
+  if (!(await checkVaultAuth())) return;
+
+  const contactId = formData.get("contactId") as string;
+  const contactName = (formData.get("contactName") as string)?.trim() || "";
+  const projectId = formData.get("projectId") as string;
+  const rawTitle = (formData.get("title") as string)?.trim();
+  const rawContent = (formData.get("content") as string)?.trim();
+  const eventType = (formData.get("eventType") as string) || "MEETING";
+  const scheduledForRaw = formData.get("scheduledFor") as string;
+  const remindOffsetRaw = formData.get("remindOffset") as string;
+
+  if (!contactId || !rawTitle) return;
+
+  const scheduledFor = scheduledForRaw ? new Date(scheduledForRaw) : null;
+  const remindOffset =
+    remindOffsetRaw && remindOffsetRaw !== "NONE" ? parseInt(remindOffsetRaw, 10) : null;
+
+  // Добавляем имя человека в заголовок для понятности в Календаре и Telegram-уведомлении
+  const fullTitle = contactName ? `[${contactName}] ${rawTitle}` : rawTitle;
+
+  await prisma.note.create({
+    data: {
+      title: encryptText(fullTitle),
+      content: encryptText(rawContent || rawTitle),
+      category: "WORK",
+      eventType,
+      contactId,
+      projectId: projectId || null,
+      scheduledFor,
+      remindOffset,
+      reminderSent: false,
+      isArchived: false,
+    },
+  });
+
+  revalidatePath("/vault");
+}
+
+// 4. Удаление карточки человека
+export async function deleteContact(id: string) {
+  if (!(await checkVaultAuth())) return;
+  await prisma.contact.delete({ where: { id } });
+  revalidatePath("/vault");
+}
+
+// 5. Проверка ближайших Дней Рождения и отправка уведомления в Telegram
+export async function checkAndNotifyBirthdays() {
+  if (!(await checkVaultAuth())) return { sent: 0 };
+
+  const rawContacts = await prisma.contact.findMany();
+  const now = new Date();
+  const todayMD = `${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+
+  const in3Days = new Date(now);
+  in3Days.setDate(now.getDate() + 3);
+  const in3DaysMD = `${String(in3Days.getMonth() + 1).padStart(2, "0")}-${String(in3Days.getDate()).padStart(2, "0")}`;
+
+  const alerts: string[] = [];
+
+  for (const c of rawContacts) {
+    if (!c.birthday) continue;
+    const bday = decryptText(c.birthday); // YYYY-MM-DD
+    const md = bday.slice(5, 10);
+    const name = decryptText(c.name);
+    const tg = c.telegram ? decryptText(c.telegram) : "";
+
+    if (md === todayMD) {
+      alerts.push(`🎂 *СЕГОДНЯ ДЕНЬ РОЖДЕНИЯ:* ${name} ${tg ? `(${tg})` : ""}`);
+    } else if (md === in3DaysMD) {
+      alerts.push(`⏳ *Через 3 дня ДР:* ${name} (${bday}) ${tg ? `— ${tg}` : ""}`);
+    }
+  }
+
+  if (alerts.length > 0) {
+    const botToken = process.env.TELEGRAM_BOT_TOKEN;
+    const chatId = process.env.TELEGRAM_CHAT_ID;
+    const relayUrl = process.env.TELEGRAM_RELAY_URL;
+
+    if (botToken && chatId) {
+      const text = ["🎉 *MAINFRAME CRM // НАПОМИНАНИЕ О ДНЯХ РОЖДЕНИЯ*", "", ...alerts].join("\n");
+      const targetUrl = relayUrl || `https://api.telegram.org/bot${botToken}/sendMessage`;
+      await fetch(targetUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          relayUrl
+            ? { secret: "mainframe-relay-2026", botToken, chatId, text }
+            : { chat_id: chatId, text, parse_mode: "Markdown" }
+        ),
+      });
+    }
+  }
+
+  return { sent: alerts.length };
+}
+
+// ==========================================
+// МОДУЛЬ ЛИЧНОГО РАДИО (MAINFRAME AUDIO)
+// ==========================================
+
+export async function toggleAudioFavorite(id: string, currentFav: boolean) {
+  if (!(await checkVaultAuth())) return;
+
+  await prisma.audioTrack.update({
+    where: { id },
+    data: { isFav: !currentFav },
+  });
+
+  revalidatePath("/vault");
+}
+
+export async function deleteAudioTrack(id: string) {
+  if (!(await checkVaultAuth())) return;
+
+  const track = await prisma.audioTrack.findUnique({ where: { id } });
+  if (!track) return;
+
+  const filePath = path.join(process.cwd(), "storage", "vault-audio", track.filename);
+  if (fs.existsSync(filePath)) {
+    try {
+      fs.unlinkSync(filePath);
+    } catch (e) {
+      console.error("Ошибка удаления аудиофайла:", e);
+    }
+  }
+
+  await prisma.audioTrack.delete({ where: { id } });
+  revalidatePath("/vault");
 }

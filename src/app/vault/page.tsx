@@ -138,6 +138,64 @@ export default async function VaultPage() {
     title: decryptText(note.title), // Можно зашифровать и заголовки тоже
   }));
 
+  const rawTransactions = await prisma.transaction.findMany({
+    orderBy: { date: "desc" },
+    include: { project: { select: { id: true, title: true } } },
+  });
+
+  const transactions = rawTransactions.map((t) => ({
+    ...t,
+    description: t.description ? decryptText(t.description) : null,
+  }));
+
+  const rawWishlist = await prisma.wishlistItem.findMany({
+    orderBy: [{ isBought: "asc" }, { createdAt: "desc" }],
+  });
+
+  const wishlist = rawWishlist.map((w) => ({
+    ...w,
+    title: decryptText(w.title),
+  }));
+
+  const rawContacts = await prisma.contact.findMany({
+    orderBy: { createdAt: "desc" },
+    include: {
+      project: { select: { id: true, title: true, accentColor: true } },
+      notes: { orderBy: { createdAt: "desc" } },
+    },
+  });
+
+  const contacts = rawContacts.map((c) => ({
+    ...c,
+    name: decryptText(c.name),
+    role: c.role ? decryptText(c.role) : null,
+    telegram: c.telegram ? decryptText(c.telegram) : null,
+    phone: c.phone ? decryptText(c.phone) : null,
+    birthday: c.birthday ? decryptText(c.birthday) : null,
+    avatarUrl: c.avatarUrl ? decryptText(c.avatarUrl) : null,
+    bio: c.bio ? decryptText(c.bio) : null,
+    notes: c.notes.map((n) => ({
+      id: n.id,
+      title: decryptText(n.title),
+      content: decryptText(n.content),
+      eventType: n.eventType,
+      scheduledFor: n.scheduledFor,
+      remindOffset: n.remindOffset,
+      isArchived: n.isArchived,
+      createdAt: n.createdAt,
+    })),
+  }));
+
+  const rawTracks = await prisma.audioTrack.findMany({
+    orderBy: { createdAt: "desc" },
+  });
+
+  const audioTracks = rawTracks.map((t) => ({
+    ...t,
+    title: decryptText(t.title),
+    artist: decryptText(t.artist),
+  }));
+
   return (
     <main className="min-h-screen bg-obsidian text-slate-100 p-6 md:p-12">
       <div className="max-w-6xl mx-auto">
@@ -170,8 +228,16 @@ export default async function VaultPage() {
         {/* МОДУЛЬ ОБЛАЧНОГО ХРАНИЛИЩА */}
         <CloudVaultWidget files={cloudFiles} />
 
-        {/* ИНТЕРАКТИВНЫЙ ДАШБОРД СФЕР ЖИЗНИ, РОАДМАПОВ, ЗАМЕТОК И ЗАЯВОК*/}
-        <VaultDashboard projects={projects} notes={notes} leads={leads} />
+        {/* ИНТЕРАКТИВНЫЙ ДАШБОРД СФЕР ЖИЗНИ, РОАДМАПОВ, ФИНАНСОВ И ЗАМЕТОК */}
+        <VaultDashboard
+          projects={projects}
+          notes={notes}
+          leads={leads}
+          transactions={transactions}
+          wishlist={wishlist}
+          contacts={contacts}
+          audioTracks={audioTracks}
+        />
       </div>
     </main>
   );

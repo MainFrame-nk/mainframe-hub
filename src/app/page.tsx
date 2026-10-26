@@ -1,6 +1,7 @@
 import NeuralHub from "@/components/NeuralHub";
 import ContactSection from "@/components/ContactSection";
 import ProjectsShowcase from "@/components/ProjectsShowcase";
+import ThemeToggle from "@/components/ThemeToggle";
 import { prisma } from "@/lib/prisma";
 import { ensureSeedData } from "@/app/actions";
 import Link from "next/link";
@@ -55,13 +56,16 @@ export default async function Home() {
             </a>
           </nav>
 
-          <Link
-            href="/vault"
-            className="flex items-center gap-2 px-4 py-1.5 rounded-lg bg-obsidian-card border border-obsidian-border hover:border-cyber-purple/60 text-xs font-mono text-slate-200 transition-all"
-          >
-            <Lock className="w-3.5 h-3.5 text-cyber-purple" />
-            Core Vault
-          </Link>
+          <div className="flex items-center gap-3">
+            <ThemeToggle />
+            <Link
+              href="/vault"
+              className="flex items-center gap-2 px-4 py-1.5 rounded-lg bg-obsidian-card border border-obsidian-border hover:border-cyber-purple/60 text-xs font-mono text-slate-200 transition-all"
+            >
+              <Lock className="w-3.5 h-3.5 text-cyber-purple" />
+              Core Vault
+            </Link>
+          </div>
         </div>
       </header>
 

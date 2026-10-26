@@ -1,6 +1,7 @@
 import type { Config } from "tailwindcss";
 
 const config: Config = {
+  darkMode: "class",
   content: [
     "./src/pages/**/*.{js,ts,jsx,tsx,mdx}",
     "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
@@ -9,16 +10,15 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Твоя палитра MainFrame Hub
         obsidian: {
-          DEFAULT: "#090A0F", // Глубокий фон
-          card: "#12131A",    // Металлический фон карточек
-          border: "#1E202B",  // Тонкие рамки
+          DEFAULT: "rgb(var(--bg-obsidian) / <alpha-value>)",
+          card: "rgb(var(--bg-obsidian-card) / <alpha-value>)",
+          border: "rgb(var(--bg-obsidian-border) / <alpha-value>)",
         },
         cyber: {
-          purple: "#8B5CF6",  // Неоновый фиолетовый
-          cyan: "#00F0FF",    // Электрический бирюзовый
-          crimson: "#FF2A5F", // Вишневый/алый акцент
+          purple: "#8B5CF6",
+          cyan: "#00F0FF",
+          crimson: "#FF2A5F",
         },
       },
       backgroundImage: {

@@ -2,6 +2,10 @@ import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import SmoothScroll from "@/components/SmoothScroll";
+import GlobalRadioProvider from "@/components/vault/GlobalRadioProvider";
+import { checkVaultAuth } from "@/app/actions";
+import { prisma } from "@/lib/prisma";
+import { decryptText } from "@/lib/encryption";
 
 const inter = Inter({ subsets: ["latin", "cyrillic"], variable: "--font-sans" });
 const mono = JetBrains_Mono({ subsets: ["latin", "cyrillic"], variable: "--font-mono" });
@@ -42,15 +46,44 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Проверяем, авторизован ли ты в Vault (посторонние получат false и 0 данных)
+  const isAuthorized = await checkVaultAuth();
+
+  let audioTracks: {
+    id: string;
+    title: string;
+    artist: string;
+    genre: string;
+    filename: string;
+    fileSize: number;
+    isFav: boolean;
+    createdAt: Date;
+  }[] = [];
+
+  if (isAuthorized) {
+    const rawTracks = await prisma.audioTrack.findMany({
+      orderBy: { createdAt: "desc" },
+    });
+    audioTracks = rawTracks.map((t) => ({
+      ...t,
+      title: decryptText(t.title),
+      artist: decryptText(t.artist),
+    }));
+  }
+
   return (
     <html lang="ru" className="dark">
       <body className={`${inter.variable} ${mono.variable} font-sans antialiased bg-obsidian text-slate-100`}>
-        <SmoothScroll>{children}</SmoothScroll>
+        <SmoothScroll>
+          <GlobalRadioProvider initialTracks={audioTracks} isAuthorized={isAuthorized}>
+            {children}
+          </GlobalRadioProvider>
+        </SmoothScroll>
       </body>
     </html>
   );
