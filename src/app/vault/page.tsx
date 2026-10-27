@@ -123,7 +123,15 @@ export default async function VaultPage() {
     orderBy: { createdAt: "desc" },
   });
 
+  // Автоматически удаляем все ссылки, у которых истек срок действия или исчерпан лимит
+  await prisma.sharedLink.deleteMany({
+    where: {
+      expiresAt: { lt: new Date() },
+    },
+  });
+  
   const cloudFiles = await prisma.cloudFile.findMany({
+    include: { shares: { orderBy: { createdAt: "desc" } } },
     orderBy: { createdAt: "desc" },
   });
 

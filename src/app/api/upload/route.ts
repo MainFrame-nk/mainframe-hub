@@ -1,13 +1,15 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { cookies } from "next/headers";
+import { checkVaultAuth } from "@/app/actions";
+import { createFileEncryptStream } from "@/lib/encryption";
+import fs from "node:fs";
+import path from "node:path";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 
 export async function POST(req: Request) {
   try {
-    const cookieStore = await cookies();
-    const token = cookieStore.get("mainframe_vault_auth")?.value;
-    const secret = process.env.VAULT_PASSWORD || "mainframe-secret-2026";
-    if (token !== secret) {
+    if (!(await checkVaultAuth())) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -17,50 +19,46 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
 
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
-    const base64Data = buffer.toString("base64");
-
-    const driveWebhookUrl = process.env.GOOGLE_DRIVE_WEB_APP_URL;
-    let fileUrl = "";
-    let driveFileId = "";
-
-    // Отправка в облако Google Drive
-    if (driveWebhookUrl && !driveWebhookUrl.includes("vstav")) {
-      try {
-        const res = await fetch(driveWebhookUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            filename: file.name,
-            mimeType: file.type || "application/octet-stream",
-            fileData: base64Data,
-          }),
-        });
-        const result = await res.json();
-        if (result.success) {
-          fileUrl = result.fileUrl;
-          driveFileId = result.driveFileId;
-        }
-      } catch (e) {
-        console.error("Google Drive API error:", e);
-      }
+    // Закрытая папка зашифрованного буфера/хранилища (вне public!)
+    const vaultDir = path.join(process.cwd(), "storage", "vault-encrypted");
+    if (!fs.existsSync(vaultDir)) {
+      fs.mkdirSync(vaultDir, { recursive: true });
     }
 
-    // Сохраняем в SQLite вместе с driveFileId
-    await prisma.cloudFile.create({
+    // Генерируем обезличенное имя файла (чтобы хостер даже имя файла не видел на диске!)
+    const storageKey = `enc_${Date.now()}_${Math.random().toString(36).slice(2, 10)}.bin`;
+    const encryptedFilePath = path.join(vaultDir, storageKey);
+
+    // Потоковое шифрование на лету прямо из браузера на диск (0 нагрузки на RAM!)
+    const webStream = file.stream();
+    // @ts-expect-error Readable.fromWeb типы в Node 22
+    const nodeReadStream = Readable.fromWeb(webStream);
+    const encryptStream = createFileEncryptStream(storageKey);
+    const writeStream = fs.createWriteStream(encryptedFilePath);
+
+    await pipeline(nodeReadStream, encryptStream, writeStream);
+
+    const created = await prisma.cloudFile.create({
       data: {
         name: file.name,
         size: file.size,
         mimeType: file.type || "application/octet-stream",
-        fileUrl: fileUrl || "#",
-        driveFileId: driveFileId || null,
+        storageKey,
+        isEncrypted: true,
+        syncStatus: "ENCRYPTED_BUFFER",
+        fileUrl: `/api/vault/file/`, // Обновим ниже с ID
       },
     });
 
-    return NextResponse.json({ success: true });
+    // Обновляем внутреннюю ссылку для скачивания владельцем
+    await prisma.cloudFile.update({
+      where: { id: created.id },
+      data: { fileUrl: `/api/vault/file/${created.id}` },
+    });
+
+    return NextResponse.json({ success: true, fileId: created.id });
   } catch (error) {
-    console.error("Upload route error:", error);
-    return NextResponse.json({ error: "Server error" }, { status: 500 });
+    console.error("Encrypted Upload Error:", error);
+    return NextResponse.json({ error: "Server upload error" }, { status: 500 });
   }
 }

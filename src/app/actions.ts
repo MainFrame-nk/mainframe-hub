@@ -10,7 +10,7 @@ import { cookies } from "next/headers";
 import fs from "node:fs";
 import path from "node:path";
 
-import { encryptText, decryptText } from "@/lib/encryption";
+import { encryptText, decryptText, hashSharePassword } from "@/lib/encryption";
 
 // 1. Проверка авторизации (теперь проверяет куку сессии)
 export async function checkVaultAuth() {
@@ -22,9 +22,9 @@ export async function checkVaultAuth() {
 // 2. Шаг 1: Проверяем пароль и отправляем 6-значный код в Telegram
 export async function requestVaultLogin(formData: FormData) {
   const password = formData.get("password") as string;
-  const secret = process.env.VAULT_PASSWORD || "mainframe-secret-2026";
+  const secret = process.env.VAULT_PASSWORD;
 
-  if (password !== secret) {
+  if (!secret || password !== secret) {
     revalidatePath("/vault");
     return;
   }
@@ -506,88 +506,66 @@ export async function deleteProject(projectId: string) {
   revalidatePath("/vault");
 }
 
-// 13. Загрузка файла в Google Диск бинарным потоком (Максимальная скорость)
-export async function uploadCloudFile(formData: FormData) {
-  if (!(await checkVaultAuth())) return;
-
-  const file = formData.get("file") as File;
-  if (!file || file.size === 0) return;
-
-  const bytes = await file.arrayBuffer();
-  const buffer = Buffer.from(bytes);
-  
-  const driveWebhookUrl = process.env.GOOGLE_DRIVE_WEB_APP_URL;
-  let fileUrl = "";
-
-  if (driveWebhookUrl && !driveWebhookUrl.includes("vstav")) {
-    try {
-      // Передаем файл как чистый бинарный поток с параметрами в URL
-      const uploadUrl = `${driveWebhookUrl}?filename=${encodeURIComponent(file.name)}&mimetype=${encodeURIComponent(file.type || "application/octet-stream")}`;
-
-      const res = await fetch(uploadUrl, {
-        method: "POST",
-        headers: { "Content-Type": file.type || "application/octet-stream" },
-        body: buffer, // Шлем оригинальный бинарный буфер без Base64-раздувания
-      });
-
-      const result = await res.json();
-      if (result.success) {
-        fileUrl = result.fileUrl;
-      }
-    } catch (e) {
-      console.error("Ошибка бинарной загрузки на Google Диск:", e);
-    }
-  }
-
-  // Фоллбек на локальный диск, если облако недоступно
-  if (!fileUrl) {
-    const uploadDir = path.join(process.cwd(), "public", "vault-uploads");
-    if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-    const safeName = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
-    fs.writeFileSync(path.join(uploadDir, safeName), buffer);
-    fileUrl = `/vault-uploads/${safeName}`;
-  }
-
-  // Сохраняем метаданные в SQLite
-  await prisma.cloudFile.create({
-    data: {
-      name: file.name,
-      size: file.size,
-      mimeType: file.type || "application/octet-stream",
-      fileUrl,
-    },
-  });
-
-  revalidatePath("/vault");
-}
-
-// 14. Удаление файла из хранилища и с Google Диска
+// 14. Удаление зашифрованного файла из хранилища
 export async function deleteCloudFile(fileId: string) {
   if (!(await checkVaultAuth())) return;
 
   const fileRecord = await prisma.cloudFile.findUnique({ where: { id: fileId } });
   if (!fileRecord) return;
 
-  const driveWebhookUrl = process.env.GOOGLE_DRIVE_WEB_APP_URL;
-
-  // Если у файла есть ID на Google Диске, отправляем команду на удаление туда
-  if (fileRecord.driveFileId && driveWebhookUrl && !driveWebhookUrl.includes("vstav")) {
-    try {
-      await fetch(driveWebhookUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "delete",
-          fileId: fileRecord.driveFileId,
-        }),
-      });
-    } catch (e) {
-      console.error("Ошибка удаления файла с Google Диска:", e);
+  try {
+    const encryptedPath = path.join(
+      process.cwd(),
+      "storage",
+      "vault-encrypted",
+      fileRecord.storageKey
+    );
+    if (fs.existsSync(encryptedPath)) {
+      fs.unlinkSync(encryptedPath);
     }
+  } catch (e) {
+    console.error("Ошибка удаления зашифрованного файла:", e);
   }
 
-  // Удаляем запись из базы данных SQLite
   await prisma.cloudFile.delete({ where: { id: fileId } });
+  revalidatePath("/vault");
+}
+
+// Создание защищенной ссылки с паролем, таймером и лимитом скачиваний
+export async function createSharedLink(formData: FormData) {
+  if (!(await checkVaultAuth())) return { error: "Unauthorized" };
+
+  const fileId = formData.get("fileId") as string;
+  const password = (formData.get("password") as string)?.trim();
+  const ttlHours = Number(formData.get("ttlHours") || 0); // 0 = бессрочно
+  const maxDownloads = Number(formData.get("maxDownloads") || 0); // 0 = без лимита
+
+  if (!fileId) return { error: "No file ID" };
+
+  // Генерируем красивый кибер-токен (например: mf-8x9k2p)
+  const token = Math.random().toString(36).slice(2, 6) + Math.random().toString(36).slice(2, 6);
+
+  const expiresAt =
+    ttlHours > 0 ? new Date(Date.now() + ttlHours * 60 * 60 * 1000) : null;
+
+  const created = await prisma.sharedLink.create({
+    data: {
+      token,
+      fileId,
+      passwordHash: password ? hashSharePassword(password) : null,
+      expiresAt,
+      maxDownloads: maxDownloads > 0 ? maxDownloads : null,
+    },
+  });
+
+  revalidatePath("/vault");
+  return { ok: true, token: created.token };
+}
+
+// Удаление (отзыв) публичной ссылки
+export async function deleteSharedLink(shareId: string) {
+  if (!(await checkVaultAuth())) return;
+  await prisma.sharedLink.delete({ where: { id: shareId } });
   revalidatePath("/vault");
 }
 

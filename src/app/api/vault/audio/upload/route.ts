@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { encryptText } from "@/lib/encryption";
+import { encryptText, createFileEncryptStream } from "@/lib/encryption";
 import { checkVaultAuth } from "@/app/actions";
 import fs from "node:fs";
 import path from "node:path";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 
 export async function POST(req: Request) {
   try {
@@ -26,14 +28,23 @@ export async function POST(req: Request) {
       fs.mkdirSync(storageDir, { recursive: true });
     }
 
-    const ext = path.extname(file.name) || ".mp3";
-    const safeFilename = `track_${Date.now()}_${Math.random().toString(36).slice(2, 7)}${ext}`;
-    const fullPath = path.join(storageDir, safeFilename);
+    // Сохраняем оригинальное расширение в конце зашифрованного имени для определения MIME-типа,
+    // а префикс enc_audio_ сигнализирует стримеру, что файл зашифрован AES-256-CTR
+    const ext = path.extname(file.name).toLowerCase() || ".mp3";
+    const encryptedFilename = `enc_audio_${Date.now()}_${Math.random()
+      .toString(36)
+      .slice(2, 9)}${ext}`;
+    const fullPath = path.join(storageDir, encryptedFilename);
 
-    const arrayBuffer = await file.arrayBuffer();
-    fs.writeFileSync(fullPath, Buffer.from(arrayBuffer));
+    // Потоковое шифрование трека на лету прямо из браузера на диск (0 нагрузки на RAM!)
+    const webStream = file.stream();
+    // @ts-expect-error Readable.fromWeb типы в Node 22
+    const nodeReadStream = Readable.fromWeb(webStream);
+    const encryptStream = createFileEncryptStream(encryptedFilename);
+    const writeStream = fs.createWriteStream(fullPath);
 
-    // Если название не ввели вручную — берем из имени файла (например "Artist - Song.mp3")
+    await pipeline(nodeReadStream, encryptStream, writeStream);
+
     const fallbackTitle = file.name.replace(/\.[^/.]+$/, "");
     const title = rawTitle || fallbackTitle;
 
@@ -42,14 +53,14 @@ export async function POST(req: Request) {
         title: encryptText(title),
         artist: encryptText(rawArtist),
         genre,
-        filename: safeFilename,
+        filename: encryptedFilename,
         fileSize: file.size,
       },
     });
 
     return NextResponse.json({ ok: true });
   } catch (err) {
-    console.error("Audio Upload Error:", err);
+    console.error("Encrypted Audio Upload Error:", err);
     return NextResponse.json({ error: "Upload failed" }, { status: 500 });
   }
 }

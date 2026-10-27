@@ -75,15 +75,32 @@ model Lead {
   createdAt DateTime @default(now())
 }
 
-// Модель для файлов в твоем Облачном Хранилище
+// Модель для файлов в твоем Зашифрованном Хранилище
 model CloudFile {
-  id          String   @id @default(cuid())
-  name        String // Имя файла
+  id          String       @id @default(cuid())
+  name        String // Имя файла (Зашифровано в БД или открыто для тебя)
   size        Int // Размер в байтах
-  mimeType    String // Тип (image/png, application/zip и т.д.)
-  fileUrl     String // Ссылка на скачивание (Google Drive / локальное хранилище)
-  driveFileId String? // ID файла на Google Диске для удаления
-  createdAt   DateTime @default(now())
+  mimeType    String // Тип (application/zip, video/mp4 и т.д.)
+  storageKey  String // Имя зашифрованного файла на диске/VPS (например: enc_9f8a7d...)
+  isEncrypted Boolean      @default(true) // Файл зашифрован AES-256-CTR
+  syncStatus  String       @default("LOCAL_CACHE") // LOCAL_CACHE -> SYNCED_EU
+  fileUrl     String // Внутренний URL
+  driveFileId String?
+  shares      SharedLink[] // Защищенные ссылки для шеринга
+  createdAt   DateTime     @default(now())
+}
+
+// Модель защищенных ссылок для шеринга файлов с паролем и таймером
+model SharedLink {
+  id            String    @id @default(cuid())
+  token         String    @unique // Короткий красивый токен ссылки (например: x8k9p2m4)
+  fileId        String
+  file          CloudFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  passwordHash  String? // Хеш пароля (если ссылка с паролем)
+  expiresAt     DateTime? // Дата и время сгорания ссылки (TTL)
+  maxDownloads  Int? // Лимит скачиваний (например, 1 или 5)
+  downloadCount Int       @default(0) // Сколько раз уже скачали
+  createdAt     DateTime  @default(now())
 }
 
 model AuthCode {
