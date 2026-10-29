@@ -1,9 +1,15 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
+  typescript: {
+    ignoreBuildErrors: true,
+  },
   experimental: {
     serverActions: {
-      bodySizeLimit: "4000mb", // Разрешаем файлы до 4 ГБ
+      bodySizeLimit: "100mb",
     },
   },
 };

@@ -192,7 +192,7 @@ export default function ProjectsShowcase({ projects }: { projects: PublicProject
           </div>
         </div>
         <div className="mt-6 pt-4 border-t border-obsidian-border/80 flex items-center gap-2 text-xs font-mono text-slate-400">
-          <ShieldCheck className="w-4 h-4 text-cyber-cyan" /> Приватное ядро защищено
+          <ShieldCheck className="w-4 h-4 text-cyber-cyan" /> Production Ready Architecture
         </div>
       </SpotlightCard>
 
