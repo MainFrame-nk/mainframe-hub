@@ -30,7 +30,7 @@ export default function PublicHeader() {
           <div className="w-3 h-3 rounded-full bg-cyber-crimson shadow-[0_0_12px_#FF2A5F] group-hover:scale-125 transition-transform" />
           <span className="font-mono font-bold tracking-wider text-sm">
             MAINFRAME <span className="text-cyber-purple">//</span>{" "}
-            <span className="text-cyber-cyan">NG-HUB</span>
+            <span className="text-cyber-cyan">.DEV</span>
           </span>
         </div>
 
