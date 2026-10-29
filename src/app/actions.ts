@@ -12,6 +12,10 @@ import path from "node:path";
 
 import { encryptText, decryptText, hashSharePassword } from "@/lib/encryption";
 
+import { exec } from "node:child_process";
+import { promisify } from "node:util";
+const execAsync = promisify(exec);
+
 // 1. Проверка авторизации (теперь проверяет куку сессии)
 export async function checkVaultAuth() {
   const cookieStore = await cookies();
@@ -364,55 +368,62 @@ export async function deleteNote(id: string) {
 export async function submitContactForm(formData: FormData) {
   const name = formData.get("name") as string;
   const contact = formData.get("contact") as string;
-  const message = formData.get("message") as string;
+  const service = (formData.get("service") as string) || "Консультация / Индивидуальный проект";
+  const rawMessage = formData.get("message") as string;
 
-  if (!name || !contact || !message) return;
+  if (!name || !contact || !rawMessage) return;
+
+  // Формируем итоговое сообщение с выбранным пакетом для CRM в /vault
+  const fullMessage = `[Пакет: ${service}] — ${rawMessage}`;
 
   // 1. Сохраняем в локальную базу SQLite (таблица Lead)
   await prisma.lead.create({
     data: {
       name,
       contact,
-      message,
+      message: fullMessage,
       status: "NEW",
     },
   });
 
-  // 2. Отправляем мгновенное уведомление в Telegram (безопасно, без падения при ошибке) через наш Европейский Шлюз (Relay)
+  // 2. Отправляем уведомление через наш Европейский Шлюз (Relay)
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_CHAT_ID;
   const relayUrl = process.env.TELEGRAM_RELAY_URL;
 
-  if (botToken && chatId) {
+  if (botToken && chatId && !botToken.includes("вставь")) {
     const text = [
       "🚨 MAINFRAME HUB // НОВАЯ ЗАЯВКА",
       "",
       `👤 Клиент: ${name}`,
-      `📱 Контакт: ${contact}`,
+      `📦 Услуга: ${service}`,
+      `📱 Контакт (TG / MAX / Тел): ${contact}`,
       `💬 Задача:`,
-      `${message}`,
+      `${rawMessage}`,
     ].join("\n");
 
     try {
-      const targetUrl = relayUrl || `https://api.telegram.org/bot${botToken}/sendMessage`;
-
-      const res = await fetch(targetUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          relayUrl
-            ? { secret: "mainframe-relay-2026", botToken, chatId, text }
-            : { chat_id: chatId, text }
-        ),
-      });
-
-      const responseText = await res.text();
-      console.log("📡 [TG RELAY STATUS]:", res.status, responseText);
+      if (relayUrl) {
+        await fetch(relayUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            secret: "mainframe-relay-2026",
+            botToken,
+            chatId,
+            text,
+          }),
+        });
+      } else {
+        await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ chat_id: chatId, text }),
+        });
+      }
     } catch (err) {
-      console.error("❌ Ошибка отправки в Telegram:", err);
+      console.error("Ошибка отправки уведомления (заявка сохранена в БД):", err);
     }
-  } else {
-    console.log("⚠️ Не найдены TELEGRAM_BOT_TOKEN или TELEGRAM_CHAT_ID в .env");
   }
 
   revalidatePath("/");
@@ -1250,4 +1261,52 @@ export async function deleteAudioTrack(id: string) {
 
   await prisma.audioTrack.delete({ where: { id } });
   revalidatePath("/vault");
+}
+
+// 🚨 КРАСНАЯ КНОПКА: Экстренная блокировка хранилища и отзыв всех ссылок
+export async function triggerPanicLockdown() {
+  if (!(await checkVaultAuth())) return { success: false, error: "Unauthorized" };
+
+  try {
+    // 1. Уничтожаем все публичные ссылки шеринга файлов
+    try {
+      // @ts-ignore (если модель называется sharedLink)
+      await prisma.sharedLink?.deleteMany({});
+    } catch {}
+
+    // 2. Если сервер работает на Linux VPS — мгновенно отключаем мост rclone с Европой
+    if (process.platform === "linux") {
+      await execAsync("systemctl stop mainframe-storage || true");
+      await execAsync("fusermount -uz /var/www/mainframe-hub/storage || true");
+    }
+
+    // 3. Отправляем экстренное уведомление владельцу
+    const botToken = process.env.TELEGRAM_BOT_TOKEN;
+    const chatId = process.env.TELEGRAM_CHAT_ID;
+    const relayUrl = process.env.TELEGRAM_RELAY_URL;
+    const alertText =
+      "🚨 *PANIC PROTOCOL ACTIVATED*\n\n🔒 Зарубежное хранилище принудительно отсоединено от сервера РФ.\n🔥 Все внешние ссылки скачивания уничтожены.\n🛡️ Сессия Core Vault закрыта.";
+
+    if (botToken && chatId && relayUrl) {
+      await fetch(relayUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          secret: "mainframe-relay-2026",
+          botToken,
+          chatId,
+          text: alertText,
+        }),
+      }).catch(() => {});
+    }
+
+    // 4. Уничтожаем куку авторизации /vault
+    const cookieStore = await cookies();
+    cookieStore.delete("vault_session");
+
+    revalidatePath("/vault");
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
 }

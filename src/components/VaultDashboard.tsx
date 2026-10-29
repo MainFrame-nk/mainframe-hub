@@ -25,6 +25,7 @@ import {
   sendDatabaseBackupToTelegram,
   sendDailyDigestToTelegram,
   checkAndSendReminders,
+  triggerPanicLockdown,
 } from "@/app/actions";
 import {
   Plus,
@@ -254,6 +255,23 @@ export default function VaultDashboard({
           >
             <span>🌅</span>
             <span className="hidden xl:inline">{isDigestSending ? "..." : "Сводка"}</span>
+          </button>
+
+          <button
+            onClick={async () => {
+              if (
+                confirm(
+                  "🚨 АКТИВИРОВАТЬ КРАСНУЮ КНОПКУ?\n\nЭто мгновенно отключит зарубежное хранилище от сервера РФ, уничтожит все публичные ссылки и заблокирует вход в Core Vault!"
+                )
+              ) {
+                await triggerPanicLockdown();
+                window.location.href = "/";
+              }
+            }}
+            className="px-3 py-1.5 rounded-lg bg-cyber-crimson/20 hover:bg-cyber-crimson border border-cyber-crimson text-cyber-crimson hover:text-white text-xs font-mono font-bold transition-all shadow-[0_0_15px_rgba(255,42,95,0.3)] cursor-pointer"
+            title="Экстренное отключение хранилища и блокировка"
+          >
+            🚨 PANIC
           </button>
         </div>
       </div>

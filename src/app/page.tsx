@@ -6,6 +6,7 @@ import NeuralHub from "@/components/NeuralHub";
 import ContactSection from "@/components/ContactSection";
 import ProjectsShowcase from "@/components/ProjectsShowcase";
 import SpotlightCard from "@/components/SpotlightCard";
+import ServicesPackages from "@/components/ServicesPackages";
 import {
   Sparkles,
   Terminal,
@@ -255,49 +256,7 @@ export default async function Home() {
         </section>
 
         {/* 5. НАПРАВЛЕНИЯ РАЗРАБОТКИ (С подсветкой SpotlightCard) */}
-        <section id="services" className="mb-20 scroll-mt-24">
-          <div className="text-xs font-mono text-cyber-crimson uppercase tracking-widest mb-2">
-            // ARCHITECTURE & SERVICES
-          </div>
-          <h2 className="text-3xl md:text-4xl font-bold tracking-tight mb-8">
-            Направления разработки и инженерный стандарт
-          </h2>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-            <SpotlightCard spotlightColor="purple" className="p-6">
-              <Cpu className="w-6 h-6 text-cyber-purple mb-4" />
-              <h3 className="text-lg font-bold text-white mb-2">
-                Full-Stack и SaaS под ключ
-              </h3>
-              <p className="text-sm text-slate-400 leading-relaxed">
-                Проектирование и запуск сложных веб-приложений, личных кабинетов,
-                дашбордов и клиентских порталов с продуманной базой данных и API.
-              </p>
-            </SpotlightCard>
-
-            <SpotlightCard spotlightColor="cyan" className="p-6">
-              <Layers className="w-6 h-6 text-cyber-cyan mb-4" />
-              <h3 className="text-lg font-bold text-white mb-2">
-                Интерактивный UI и Анимации
-              </h3>
-              <p className="text-sm text-slate-400 leading-relaxed">
-                Создание имиджевых сайтов и интерфейсов уровня топовых техно-корпораций:
-                глубокая темная эстетика, плавная динамика и мгновенный отклик.
-              </p>
-            </SpotlightCard>
-
-            <SpotlightCard spotlightColor="crimson" className="p-6">
-              <ShieldCheck className="w-6 h-6 text-cyber-crimson mb-4" />
-              <h3 className="text-lg font-bold text-white mb-2">
-                Инфраструктура и Безопасность
-              </h3>
-              <p className="text-sm text-slate-400 leading-relaxed">
-                Настройка сетевой маршрутизации, защита данных, интеграция ботов,
-                платежных шлюзов и прямое сопровождение проекта без посредников.
-              </p>
-            </SpotlightCard>
-          </div>
-        </section>
+        <ServicesPackages />
 
         {/* 6. ФОРМА СВЯЗИ ДЛЯ КЛИЕНТОВ */}
         <section id="contact" className="scroll-mt-24">
